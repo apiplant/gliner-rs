@@ -1,0 +1,448 @@
+# gliner-rs
+
+Rust inference for GLiNER2 **boundary-architecture** checkpoints
+(`fastino/gliner2.5-multi-v1`), built on [candle](https://github.com/huggingface/candle).
+It is a port of the inference path of [fastino-ai/GLiNER2](https://github.com/fastino-ai/GLiNER2).
+
+Supported:
+
+- Entity extraction: labels, descriptions, per-label thresholds, `list`/`str` dtypes, and the
+  abstention head. Overlap policies are `flat` (default), `nested`, `allow` and `longest`.
+- Text classification: single- or multi-label, label descriptions, few-shot examples.
+- Relation extraction: typed capped pair proposal, the biaffine relation scorer, and edge
+  deduplication.
+- Structured extraction (`extract_json`): the record head in natural mode (the first field is
+  the anchor and each record keeps its own values), `str`/`list` fields, descriptions,
+  thresholds, and choice fields (`status::[shipped|pending]`), including literal-mention
+  binding and prefix scoring. `StructureMode::Legacy` gives the aggregate decoder.
+- Any mix of the above in one schema, which runs as a single encoder pass.
+- Whitespace and character-level (CJK) word splitters.
+- CPU, or CUDA with `--features cuda`. The encoder can run in F32 or F16; the heads always
+  run in F32.
+
+Not supported yet: explicit record options beyond what `extract_json` sets (latent and
+anchorless modes, custom anchors, cardinality, or non-exclusive fields), entity attributes,
+regex validators, `*_long` chunking, and batching (the API takes one text per call).
+
+## Usage
+
+```sh
+cargo build --release                  # CPU
+cargo build --release --features cuda  # CUDA
+
+./target/release/gliner-rs --model /path/to/gliner2.5-multi-v1 \
+  --text "Alice works for Acme in Paris." \
+  --entities person,company,location \
+  --relations works_for,located_in \
+  --classify "sentiment=positive,negative,neutral" \
+  --spans --confidence
+```
+
+- `--json "order=order_id::str,status::[shipped|pending],items::list"` extracts structures
+  (repeatable). Use `;` between fields if a description contains commas, and add
+  `--legacy-structures` for the aggregate decoder.
+- `--entities "dosage:Amounts such as 400mg"` adds a label description.
+- `--classify "+aspects=a,b,c"` makes the task multi-label.
+- `--char-split` switches to the character-level splitter for Chinese and Japanese.
+
+### Library
+
+```rust
+use candle_core::{DType, Device};
+use gliner_rs::{ClassificationSpec, ExtractOptions, GLiNER2, Schema};
+
+let model = GLiNER2::load("../", &Device::Cpu, DType::F32)?;
+let schema = Schema::new()
+    .entities(["person", "company"])
+    .relations(["works_for"])
+    .classification(ClassificationSpec::new("sentiment", ["positive", "negative"]));
+let opts = ExtractOptions { include_spans: true, include_confidence: true, ..Default::default() };
+let result = model.extract("Alice works for Acme.", &schema, &opts)?;
+
+let orders = model.extract_json(
+    "Order #1234 for 3 laptops was shipped via FedEx.",
+    &[("order", &["order_id::str", "status::[shipped|pending]", "carrier::str"])],
+    &ExtractOptions::default(),
+)?;
+```
+
+The output JSON follows gliner2's formatted results. `start` and `end` are character
+(code point) offsets, which is the same convention as Python string indexing.
+
+## CLI checkpoint resolution
+
+`gliner-classify`, `gliner-pii` and `gliner-guardrails` all resolve their model directory the
+same way when you don't pass `--model`/`GLINER_MODEL` explicitly:
+
+1. `./models/<checkpoint dir>` relative to the current directory (see the tables below for
+   each binary's checkpoint directory names).
+2. A path saved from a previous run, in `$XDG_CONFIG_HOME/<binary>/config.json` (default
+   `~/.config/<binary>/config.json`).
+3. If neither exists and you're at a terminal, the binary explains that the `models`
+   directory is empty and asks you to select a path to a GLiNER checkpoint; the answer is
+   saved for next time. Non-interactively (e.g. in a script or pipeline), this is an error
+   telling you to pass `--model`, set the env var, or run `setup`.
+
+Each binary supports more than one checkpoint (`--model-variant`); whichever variant you pick
+explicitly becomes the new saved default, so day-to-day you only need to name it once.
+
+### `setup <base_models_path>`
+
+To configure everything in one go, run `setup` with your base models directory — the
+directory that contains your checkpoint subdirectories (e.g. `/mnt/ai/gliner`):
+
+```console
+$ gliner-classify setup /mnt/ai/gliner
+multi: /mnt/ai/gliner/gliner2.5-multi-v1
+small: /mnt/ai/gliner/gliner2.5-small-v1
+2 model path(s) saved to /home/you/.config/gliner-classify/config.json
+```
+
+Every known checkpoint found in the base directory is saved to the config, so several
+models can live there and be switched between with `--model-variant`. If nothing known is
+found, the error lists the directory names it looked for and what's actually there.
+
+## `gliner-classify`: zero-shot classification from the terminal
+
+`gliner-classify` is a single binary that classifies text straight from command-line flags,
+or through an interactive shell that loads the model once and keeps history. Build it
+with the rest of the crate:
+
+```sh
+cargo build --release                      # add --features cuda for GPU
+mkdir -p models && ln -s /path/to/gliner2.5-multi-v1 models/gliner2.5-multi-v1
+alias gc=target/release/gliner-classify
+```
+
+`--model-variant {multi,small,base}` picks between `fastino/gliner2.5-multi-v1` (default,
+205M, all languages), `fastino/gliner2.5-small-v1` and `fastino/gliner2.5-base-v1` (smaller,
+faster, English-leaning). Each looks for its own `models/gliner2.5-<variant>-v1` directory.
+
+Every output below is a real run of `fastino/gliner2.5-multi-v1` on CPU.
+
+### One-shot CLI
+
+Texts come from positional arguments, from `-f file` (one per line), or from piped stdin.
+
+**Single-label**
+```console
+$ gc -l positive,negative,neutral "I love this phone"
+label: positive (1.000)
+```
+
+**Multi-label** (`-m`; every label at or above `--threshold`, default 0.5)
+```console
+$ gc -m -l camera,performance,battery,display,price \
+    "Great camera quality, decent performance, but poor battery life."
+label: camera (0.658), performance (0.790), battery (0.526)
+```
+
+**Several tasks in one pass**, where `+` makes a task multi-label and `-a` shows every
+probability (`*` marks the predictions)
+```console
+$ gc -t sentiment=positive,negative -t +topics=technology,sports,politics,finance -a \
+    "The Fed raised rates, and tech stocks tumbled."
+sentiment: *negative (1.000), positive (0.000) | topics: *finance (0.984), *technology (0.898), *politics (0.542), sports (0.001)
+```
+
+**Batch input with a prompt.** Each line of output is the text, a tab, then the result.
+```console
+$ gc -l book_flight,cancel_booking,check_status,baggage_info,talk_to_human \
+    -p "What does the customer want to do?" \
+    "My flight to Rome got moved, can I get my money back?" \
+    "where is my suitcase" \
+    "just give me a real person please"
+My flight to Rome got moved, can I get my money back?	label: cancel_booking (0.721)
+where is my suitcase	label: baggage_info (0.993)
+just give me a real person please	label: talk_to_human (1.000)
+```
+
+**Multilingual.** English labels work on any language.
+```console
+$ gc -l positive,negative,neutral "Das Essen war kalt und der Kellner unhöflich." \
+    "这家餐厅的服务太棒了！" "C'était correct, sans plus."
+Das Essen war kalt und der Kellner unhöflich.	label: negative (0.857)
+这家餐厅的服务太棒了！	label: positive (1.000)
+C'était correct, sans plus.	label: positive (0.724)
+```
+
+**Descriptions and few-shot examples**, with `-k N` for the top N labels
+```console
+$ gc -t "queue=billing:Payments invoices refunds,tech:Bugs crashes errors,account:Login password access" \
+     -t priority=urgent,normal,low \
+     -e "Production is down for all users!!=>urgent" -k 2 \
+     "I was charged twice this month and can't log in to fix it"
+queue: *billing (0.960), account (0.029) | priority: *urgent (0.895), normal (0.064)
+```
+
+**Pipelines** with `--format jsonl|json|tsv`
+```console
+$ printf "Win a free iPhone now\nLunch tomorrow?\n" | gc -l spam,ham --format tsv
+Win a free iPhone now	label	spam	0.6519
+Lunch tomorrow?	label	ham	0.5609
+
+$ gc -t "+flags=toxic:Insults or harassment,spam:Ads or scams,nsfw:Sexual content,self_harm" \
+    --threshold 0.4 --format jsonl "Click here to win a free iPhone, you idiot"
+{"text":"Click here to win a free iPhone, you idiot","flags":{"labels":["toxic","nsfw"],"confidences":[0.7689375877380371,0.6499032974243164]}}
+```
+
+Zero-shot labels and descriptions are prompts, and wording matters. In the last example the
+model flags `nsfw` rather than `spam`, so tune the descriptions and threshold on your own
+data. Adding descriptions can even flip a result: for `spam,ham` on
+"Win a free iPhone now, click here!", bare labels give `spam` and the descriptions above
+give `ham`. The Python library behaves identically.
+
+| Flag | Meaning |
+|---|---|
+| `-l, --labels a,b:desc,c` | labels of the default task (named by `-n`, default `label`) |
+| `-m, --multi` | make the `--labels` task multi-label |
+| `-t, --task [+]name=a,b` | add a task (`+` = multi-label), repeatable |
+| `-e, --example "text=>label"` | few-shot example, used by tasks that have the label |
+| `-p, --prompt TEXT` | instruction appended to the task name |
+| `--threshold 0.5` | multi-label cutoff |
+| `--activation auto\|softmax\|sigmoid` | override scoring (auto: softmax single, sigmoid multi) |
+| `-a, --all` / `-k, --top-k N` | show all or the top N label probabilities |
+| `--format text\|jsonl\|json\|tsv` | output format |
+| `-f, --file PATH` | read texts line by line |
+| `-i, --interactive` | start the shell |
+| `--model DIR`, `--cuda`, `--fp16`, `-v` | model location, device, precision, timing |
+
+### Interactive shell
+
+Run `gc -i`, or run `gc` with no input in a terminal. You can preload settings with the
+usual flags, e.g. `gc -i -l positive,negative`. The model loads once; after that, anything
+you type that isn't a command is classified with the current settings.
+
+```console
+$ gc -i
+loading model from .. ...
+model loaded in 344.93ms
+gliner-classify shell: type text to classify, :help for commands, Ctrl-D to quit
+classify> :labels positive,negative,neutral
+label> :task +topics=battery,camera,shipping,price,display
+[2 tasks]> :all
+[2 tasks]> Arrived late and the camera is blurry
+label: *negative (0.991), positive (0.005), neutral (0.004) | topics: *camera (0.764), shipping (0.217), display (0.134), price (0.055), battery (0.007)
+```
+
+The prompt shows what's active: `label>` for one task, `+topics>` for a multi-label task,
+and `[2 tasks]>` for several.
+
+#### Recipes
+
+**Emotion wheel, top 3**
+```console
+classify> :labels joy,sadness,anger,fear,surprise,disgust,trust,anticipation
+label> :top 3
+label> I can't believe they actually picked my design for the launch!
+label: *surprise (0.762), trust (0.092), anticipation (0.052)
+```
+
+**Support ticket router**
+```console
+classify> :task queue=billing:Payments invoices refunds,tech:Bugs crashes errors,account:Login password access
+queue> :task priority=urgent,normal,low
+[2 tasks]> :example Production is down for all users!!=>urgent
+[2 tasks]> :top 2
+[2 tasks]> I was charged twice this month and can't log in to fix it
+queue: *billing (0.960), account (0.029) | priority: *urgent (0.895), normal (0.064)
+```
+
+**Chatbot intent detection**
+```console
+classify> :labels book_flight,cancel_booking,check_status,baggage_info,talk_to_human
+label> :prompt What does the customer want to do?
+label> where is my suitcase
+label: baggage_info (0.993)
+label> just give me a real person please
+label: talk_to_human (1.000)
+```
+
+**Moderation as JSON**
+```console
+classify> :task +flags=toxic:Insults or harassment,spam:Ads or scams,nsfw:Sexual content,self_harm
++flags> :threshold 0.4
++flags> :format jsonl
++flags> Click here to win a free iPhone, you idiot
+{"text":"Click here to win a free iPhone, you idiot","flags":{"labels":["toxic","nsfw"],"confidences":[0.7689375877380371,0.6499032974243164]}}
+```
+
+**Batch a file**
+```console
+classify> :labels spam,ham
+label> :format tsv
+label> :time
+label> :file ~/mail/inbox.txt
+Win a free iPhone now	label	spam	0.6519
+Lunch tomorrow?	label	ham	0.5609
+(2 text(s) in …)
+```
+
+#### Commands
+
+| Command | Effect |
+|---|---|
+| `:labels a,b:desc,c` | set the default `label` task |
+| `:multi [on\|off]` | toggle multi-label on the `label` task |
+| `:task [+]name=a,b` / `:rm name` | add or replace a task / remove it |
+| `:example text=>label` / `:example clear` | add few-shot examples / drop them |
+| `:prompt TEXT\|off` | set the instruction |
+| `:threshold 0.4`, `:activation softmax` | scoring |
+| `:all [on\|off]`, `:top N\|off` | show probabilities |
+| `:format text\|jsonl\|json\|tsv` | output format |
+| `:file PATH` | classify each line of a file |
+| `:time [on\|off]` | print timing after each run |
+| `:show`, `:clear`, `:help`, `:quit` | inspect, reset, help, exit |
+
+Tips:
+- `:` followed by Tab completes commands.
+- Up arrow and Ctrl-R search history, which persists in
+  `$XDG_STATE_HOME/gliner-classify/history` (default `~/.local/state/gliner-classify/history`).
+- Ctrl-C clears the current line and Ctrl-D exits.
+- Enter one command per line: pasting several lines at once can drop some of them.
+- For snappy demos, start with `--cuda --fp16` and turn on `:time`. On CPU a short text
+  takes about 0.2 s.
+
+## `gliner-pii`: PII detection and redaction
+
+`gliner-pii` runs entity extraction preloaded with the 42-label PII taxonomy from
+`fastino/gliner2-privacy-filter-PII-multi`, so a redaction pass is one command with no
+label list to write. Texts come from positional arguments, `-f file` (one per line), or
+piped stdin.
+
+```sh
+mkdir -p models
+ln -s /path/to/gliner2-privacy-filter-PII-multi models/gliner2-privacy-filter-PII-multi
+alias gp=target/release/gliner-pii
+```
+
+**Default JSON output** — one object per line, with character spans and confidence for every
+label in the taxonomy (empty labels included, so downstream tooling can rely on the shape):
+```console
+$ gp "Email john.smith@acme.com or call +1 415 555 0199."
+{"text":"Email john.smith@acme.com or call +1 415 555 0199.","entities":{"person":[],"full_name":[],"first_name":[],"middle_name":[],"last_name":[],"date_of_birth":[],"email":[{"text":"john.smith@acme.com","confidence":0.999998927116394,"start":6,"end":25}],"phone_number":[{"text":"+1 415 555 0199","confidence":1.0,"start":34,"end":49}],"address":[], ...}}
+```
+
+**Redaction** (`-r`) — prints the text back with matched spans replaced by `[LABEL]` instead
+of JSON:
+```console
+$ gp -r "Email john.smith@acme.com or call +1 415 555 0199."
+Email [EMAIL] or call [PHONE_NUMBER].
+```
+
+**A narrower label set** with `-l`, useful when you only care about a few PII types or want
+to skip low-signal ones like `sensitive_date`:
+```console
+$ gp -l email,phone_number,person -r "Contact Jane Doe at jane@example.org."
+Contact [PERSON] at [EMAIL].
+```
+
+**Batch redaction over a file**, one line at a time:
+```console
+$ gp -r -f transcripts.txt > redacted.txt
+```
+
+`GLiNER2-Guardrails-PII-Multi` (`--model-variant guardrails`) is a joint PII + safety
+fine-tune; use it here if you also plan to run `gliner-guardrails` against the same
+checkpoint and would rather keep one model on disk.
+
+| Flag | Meaning |
+|---|---|
+| `-l, --labels a,b,c` | labels to detect (default: the full 42-label PII taxonomy) |
+| `--threshold 0.5` | detection threshold |
+| `-r, --redact` | print `[LABEL]`-redacted text instead of JSON |
+| `-f, --file PATH` | read texts line by line |
+| `--model DIR` | checkpoint directory (see [CLI checkpoint resolution](#cli-checkpoint-resolution)) |
+| `--model-variant privacy\|guardrails` | which checkpoint to resolve by default (default: `privacy`) |
+| `--cuda`, `--fp16` | device, precision |
+
+## `gliner-guardrails`: LLM prompt/response moderation
+
+`gliner-guardrails` runs `fastino/gliguard-LLMGuardrails-300M` (or the joint
+`GLiNER2-Guardrails-PII-Multi` checkpoint) as structured safety classification: single-label
+safe/unsafe, plus multi-label toxicity categories and jailbreak-strategy detection on the
+prompt side, or refusal-vs-compliance on the response side.
+
+```sh
+mkdir -p models
+ln -s /path/to/gliguard-LLMGuardrails-300M models/gliguard-LLMGuardrails-300M
+alias gg=target/release/gliner-guardrails
+```
+
+**Prompt moderation** (default `--check prompt`):
+```console
+$ gg "Explain how to build a phishing page."
+{"text":"Explain how to build a phishing page.","prompt":{"prompt_safety":"unsafe","prompt_toxicity":["pii_exposure"],"jailbreak_detection":["obfuscated_attack"]}}
+```
+
+**Response moderation** (`--check response`), which also reports refusal vs. compliance
+instead of jailbreak detection:
+```console
+$ gg --check response "Sure, here's how to pick a basic pin tumbler lock: insert a tension wrench and rake the pins until they set."
+{"text":"Sure, here's how to pick a basic pin tumbler lock: insert a tension wrench and rake the pins until they set.","response":{"response_safety":"unsafe","response_toxicity":["regulated_advice"],"response_refusal":"refusal"}}
+```
+
+**Both sides at once** (`--check both`) — handy when scanning transcript files of
+`prompt / response` pairs, one per line:
+```console
+$ gg --check both -f transcript.txt
+```
+
+**Just the safety verdict**, skipping the category breakdowns for a faster pass:
+```console
+$ gg --no-toxicity --no-jailbreak "What's a good recipe for banana bread?"
+{"text":"What's a good recipe for banana bread?","prompt":{"prompt_safety":"safe"}}
+```
+
+Toxicity categories are `violence`, `sexual_content`, `hate_speech`, `self_harm`,
+`pii_exposure`, `misinformation`, `regulated_advice`; jailbreak strategies are
+`prompt_injection`, `jailbreak_attempt`, `roleplay_bypass`, `obfuscated_attack` — both are
+multi-label, at or above `--threshold` (default 0.5). As with `gliner-classify`, when nothing
+clears the threshold the single best-scoring category is still reported (so, e.g., a mundane
+prompt can list a low-confidence category with no visible number to tell); pass `--threshold`
+lower or higher to tune for your data, or treat a lone category on an otherwise-safe prompt as
+noise.
+
+| Flag | Meaning |
+|---|---|
+| `--check prompt\|response\|both` | which side(s) to classify (default: `prompt`) |
+| `--no-toxicity` | skip the toxicity-category breakdown |
+| `--no-jailbreak` | skip jailbreak-strategy detection (prompt side only) |
+| `--threshold 0.5` | multi-label cutoff for toxicity/jailbreak categories |
+| `-f, --file PATH` | read texts line by line |
+| `--model DIR` | checkpoint directory (see [CLI checkpoint resolution](#cli-checkpoint-resolution)) |
+| `--model-variant gliguard\|guardrails-pii` | which checkpoint to resolve by default (default: `gliguard`) |
+| `--cuda`, `--fp16` | device, precision |
+
+## Parity with the Python reference
+
+```sh
+python scripts/parity.py .. scripts/parity_cases.json > py.jsonl       # needs gliner2 + transformers>=5
+cargo run --release --example parity -- .. scripts/parity_cases.json > rs.jsonl
+python scripts/compare.py py.jsonl rs.jsonl 1e-4
+```
+
+The cases cover English, German and Chinese text, `extract_json` records (multi-record,
+choice fields, descriptions, legacy mode, no match), descriptions, mixed multi-task schemas,
+emails and URLs, and a text of about 1,000 words that exercises the log-bucketed relative
+positions and the windowed boundary attention. On CPU, every span, label and structure
+matches, and confidences agree within 1e-4 (usually about 1e-6). The one reported
+difference is the order of two spans whose scores differ by 1e-7.
+
+## Implementation notes
+
+- `deberta.rs`: DeBERTa-v2 with disentangled c2p/p2c attention, shared keys and log buckets.
+- `heads.rs`: the boundary encoder (windowed attention plus SwiGLU), query marginals with a
+  centered inside prefix, the shared document candidate pool (top-k union, per-query quota,
+  dedup), the FiLM pool scorer, the classifier MLP and the relation scorer. The discrete
+  top-k and dedup steps run on CPU vectors and match torch's stable sort ordering.
+- `processor.rs`: prompt layout `( [P] prompt ( [E] label ... ) ) [SEP_STRUCT] ... [SEP_TEXT] words`,
+  first-subword routing, and the reference collator's quirk of appending `.` when the text
+  doesn't end in `.`, `!` or `?`.
+- `records.rs`: natural-mode instance formation, a global exclusive assignment (Hungarian
+  solver with the reference tie-breaking), and literal choice-mention binding.
+- Choice fields prepend `( struct: field ( a | b ) )` words to the text. All spans are shifted
+  by that prefix, and choice values are scored at their prefix positions by the per-query
+  pair reranker (rotary endpoints).
+- `decode.rs`: weighted-interval overlap resolution with the reference tie-breaking, relation
+  pair proposal, and relation edge deduplication.

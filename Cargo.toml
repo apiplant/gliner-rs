@@ -1,0 +1,24 @@
+[package]
+name = "gliner-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust (candle) inference for GLiNER2 boundary-architecture checkpoints (e.g. fastino/gliner2.5-multi-v1)"
+license = "Apache-2.0"
+
+[lib]
+name = "gliner_rs"
+
+[dependencies]
+anyhow = "1"
+candle-core = "0.11"
+candle-nn = "0.11"
+clap = { version = "4", features = ["derive", "env"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
+rustyline = { version = "18", features = ["with-file-history", "derive"] }
+
+[features]
+default = []
+cuda = ["candle-core/cuda", "candle-nn/cuda"]

@@ -1,0 +1,214 @@
+[
+  {
+    "text": "Apple CEO Tim Cook announced iPhone 15 in Cupertino yesterday.",
+    "entities": [
+      "company",
+      "person",
+      "product",
+      "location"
+    ]
+  },
+  {
+    "text": "Patient received 400mg ibuprofen for severe headache at 2 PM.",
+    "entities": {
+      "medication": "Names of drugs or pharmaceutical substances",
+      "dosage": "Amounts such as 400mg, 2 tablets, or 5ml",
+      "symptom": "Reported symptoms or conditions",
+      "time": "Clock times or relative times"
+    }
+  },
+  {
+    "text": "Angela Merkel traf Emmanuel Macron am Montag in Berlin, um über die Zukunft der Europäischen Union zu sprechen.",
+    "entities": [
+      "person",
+      "location",
+      "organization",
+      "date"
+    ],
+    "relations": [
+      "met_with",
+      "located_in"
+    ]
+  },
+  {
+    "text": "马云于1999年在杭州创立了阿里巴巴集团。",
+    "char_split": true,
+    "entities": [
+      "person",
+      "organization",
+      "location",
+      "date"
+    ]
+  },
+  {
+    "text": "Contact john.doe@example.com or visit https://www.example.org/help before 5 March 2024; ask for Dr. María José García-López.",
+    "entities": [
+      "email",
+      "url",
+      "date",
+      "person"
+    ]
+  },
+  {
+    "text": "Great camera quality, decent performance, but poor battery life. Customer support in Madrid never answered my emails.",
+    "entities": [
+      "location"
+    ],
+    "classifications": [
+      {
+        "task": "aspects",
+        "labels": [
+          "camera",
+          "performance",
+          "battery",
+          "display",
+          "price"
+        ],
+        "multi_label": true,
+        "cls_threshold": 0.4
+      },
+      {
+        "task": "sentiment",
+        "labels": [
+          "positive",
+          "negative",
+          "neutral"
+        ]
+      }
+    ],
+    "relations": [
+      "located_in"
+    ]
+  },
+  {
+    "text": "Microsoft was founded by Bill Gates and Paul Allen in Albuquerque in 1975. Satya Nadella became CEO of Microsoft in 2014, succeeding Steve Ballmer.",
+    "entities": [
+      "person",
+      "company",
+      "location",
+      "year"
+    ],
+    "relations": [
+      "founded_by",
+      "ceo_of",
+      "founded_in"
+    ],
+    "threshold": 0.3
+  },
+  {
+    "text": "LONG",
+    "long": true,
+    "entities": [
+      "person",
+      "company",
+      "location",
+      "product"
+    ],
+    "relations": [
+      "works_for"
+    ]
+  },
+  {
+    "text": "Alice bought apples and Bob bought oranges.",
+    "json": {
+      "purchase": [
+        "buyer::str",
+        "item::str"
+      ]
+    }
+  },
+  {
+    "text": "The new MacBook Pro 14 costs $1,999 and ships with an M3 chip, 16GB RAM, and a Liquid Retina display. Available in space black and silver.",
+    "json": {
+      "product": [
+        "name::str",
+        "price::str",
+        "features::list",
+        "colors::list"
+      ]
+    }
+  },
+  {
+    "text": "Order #1234 for 3 laptops was shipped yesterday via FedEx. Order #5678 for a monitor is still pending.",
+    "json": {
+      "order": [
+        "order_id::str",
+        "quantity::str",
+        "status::[shipped|pending|cancelled]",
+        "carrier::str"
+      ]
+    }
+  },
+  {
+    "text": "Contract between Acme Corp and Globex signed on 5 May 2024 in London; payment terms net 30 days for the office rental.",
+    "json": {
+      "contract": [
+        "party::list::Parties signing the contract",
+        "date::str::Signing date",
+        "location::str",
+        "type::[sales|lease|employment|service]"
+      ]
+    }
+  },
+  {
+    "text": "The new MacBook Pro 14 costs $1,999 and ships with an M3 chip, 16GB RAM, and a Liquid Retina display. Available in space black and silver.",
+    "json": {
+      "product": [
+        "name::str",
+        "price::str",
+        "features::list",
+        "category::[laptop|phone|tablet]"
+      ]
+    },
+    "legacy": true
+  },
+  {
+    "text": "Apple CEO Tim Cook unveiled the iPhone 15 Pro for $999.",
+    "json": {
+      "announcement": [
+        "company::str",
+        "product::str",
+        "price::str"
+      ]
+    },
+    "entities": [
+      "person",
+      "organization",
+      "product"
+    ],
+    "classifications": [
+      {
+        "task": "topic",
+        "labels": [
+          "technology",
+          "business",
+          "sports",
+          "politics"
+        ]
+      }
+    ],
+    "relations": [
+      "works_for"
+    ]
+  },
+  {
+    "text": "Maria kaufte zwei Bücher bei Thalia in München, und Jonas bestellte einen Laptop bei Amazon.",
+    "json": {
+      "purchase": [
+        "buyer::str",
+        "item::list",
+        "store::str",
+        "city::str"
+      ]
+    }
+  },
+  {
+    "text": "The weather is nice today.",
+    "json": {
+      "person": [
+        "name::str",
+        "age::str"
+      ]
+    }
+  }
+]
