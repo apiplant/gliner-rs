@@ -1,8 +1,11 @@
 # gliner-rs
 
-Rust inference for GLiNER2 **boundary-architecture** checkpoints
-(`fastino/gliner2.5-multi-v1`), built on [candle](https://github.com/huggingface/candle).
-It is a port of the inference path of [fastino-ai/GLiNER2](https://github.com/fastino-ai/GLiNER2).
+Rust inference for GLiNER2 **boundary-architecture** checkpoints, built on
+[candle](https://github.com/huggingface/candle). It is a port of the inference path of
+[fastino-ai/GLiNER2](https://github.com/fastino-ai/GLiNER2), and works with any checkpoint
+in that family — `fastino/gliner2.5-multi-v1` (default), `gliner2.5-small-v1`,
+`gliner2.5-base-v1`, `gliner2-privacy-filter-PII-multi`, `gliguard-LLMGuardrails-300M`,
+`GLiNER2-Guardrails-PII-Multi`, and other fine-tunes on the same architecture.
 
 Supported:
 
@@ -55,19 +58,25 @@ sudo apt update && sudo apt install gliner-rs
 Or download the archive, `.deb`, or `.pkg.tar.zst` for your platform from the
 [releases page](https://github.com/apiplant/gliner-rs/releases) and install
 it directly — the plain archive needs no installation at all, all four
-binaries are static enough to run from anywhere.
+binaries are static enough to run from anywhere. On Linux x86_64 with an
+NVIDIA GPU, grab the `gliner-rs-cuda-*-x86_64-unknown-linux-gnu.tar.gz`
+archive instead for CUDA-accelerated inference (needs a host driver
+compatible with the CUDA 12.6 toolkit it was built against, and pass
+`--cuda` to the CLIs to use it).
 
 As a Rust library, or to build the CLIs from source, via crates.io:
 
 ```sh
 cargo add gliner-rs         # as a library dependency
 cargo install gliner-rs     # for the gliner/gliner-classify/gliner-pii/gliner-guardrails binaries
+cargo install gliner-rs --features cuda  # with CUDA support
 ```
 
 | Platform | Ships as |
 | --- | --- |
 | macOS (Apple Silicon) | archive, Homebrew |
 | Linux x86_64 | archive, `.deb` + apt repo, Arch package + pacman repo, Homebrew |
+| Linux x86_64, CUDA | archive only |
 | Linux aarch64 | archive, `.deb` + apt repo, Homebrew |
 
 No macOS Intel build: only Apple Silicon (`aarch64-apple-darwin`) and Linux
@@ -82,7 +91,7 @@ built and published.
 cargo build --release                  # CPU
 cargo build --release --features cuda  # CUDA
 
-./target/release/gliner \
+gliner \
   --text "Alice works for Acme in Paris." \
   --entities person,company,location \
   --relations works_for,located_in \
@@ -157,7 +166,6 @@ with the rest of the crate:
 
 ```sh
 cargo build --release                      # add --features cuda for GPU
-alias gc=target/release/gliner-classify
 ```
 
 `--model-variant {multi,small,base}` picks between `fastino/gliner2.5-multi-v1` (default,
@@ -173,13 +181,13 @@ Texts come from positional arguments, from `-f file` (one per line), or from pip
 
 **Single-label**
 ```console
-$ gc -l positive,negative,neutral "I love this phone"
+$ gliner-classify -l positive,negative,neutral "I love this phone"
 label: positive (1.000)
 ```
 
 **Multi-label** (`-m`; every label at or above `--threshold`, default 0.5)
 ```console
-$ gc -m -l camera,performance,battery,display,price \
+$ gliner-classify -m -l camera,performance,battery,display,price \
     "Great camera quality, decent performance, but poor battery life."
 label: camera (0.658), performance (0.790), battery (0.526)
 ```
@@ -187,14 +195,14 @@ label: camera (0.658), performance (0.790), battery (0.526)
 **Several tasks in one pass**, where `+` makes a task multi-label and `-a` shows every
 probability (`*` marks the predictions)
 ```console
-$ gc -t sentiment=positive,negative -t +topics=technology,sports,politics,finance -a \
+$ gliner-classify -t sentiment=positive,negative -t +topics=technology,sports,politics,finance -a \
     "The Fed raised rates, and tech stocks tumbled."
 sentiment: *negative (1.000), positive (0.000) | topics: *finance (0.984), *technology (0.898), *politics (0.542), sports (0.001)
 ```
 
 **Batch input with a prompt.** Each line of output is the text, a tab, then the result.
 ```console
-$ gc -l book_flight,cancel_booking,check_status,baggage_info,talk_to_human \
+$ gliner-classify -l book_flight,cancel_booking,check_status,baggage_info,talk_to_human \
     -p "What does the customer want to do?" \
     "My flight to Rome got moved, can I get my money back?" \
     "where is my suitcase" \
@@ -206,7 +214,7 @@ just give me a real person please	label: talk_to_human (1.000)
 
 **Multilingual.** English labels work on any language.
 ```console
-$ gc -l positive,negative,neutral "Das Essen war kalt und der Kellner unhöflich." \
+$ gliner-classify -l positive,negative,neutral "Das Essen war kalt und der Kellner unhöflich." \
     "这家餐厅的服务太棒了！" "C'était correct, sans plus."
 Das Essen war kalt und der Kellner unhöflich.	label: negative (0.857)
 这家餐厅的服务太棒了！	label: positive (1.000)
@@ -215,7 +223,7 @@ C'était correct, sans plus.	label: positive (0.724)
 
 **Descriptions and few-shot examples**, with `-k N` for the top N labels
 ```console
-$ gc -t "queue=billing:Payments invoices refunds,tech:Bugs crashes errors,account:Login password access" \
+$ gliner-classify -t "queue=billing:Payments invoices refunds,tech:Bugs crashes errors,account:Login password access" \
      -t priority=urgent,normal,low \
      -e "Production is down for all users!!=>urgent" -k 2 \
      "I was charged twice this month and can't log in to fix it"
@@ -224,11 +232,11 @@ queue: *billing (0.960), account (0.029) | priority: *urgent (0.895), normal (0.
 
 **Pipelines** with `--format jsonl|json|tsv`
 ```console
-$ printf "Win a free iPhone now\nLunch tomorrow?\n" | gc -l spam,ham --format tsv
+$ printf "Win a free iPhone now\nLunch tomorrow?\n" | gliner-classify -l spam,ham --format tsv
 Win a free iPhone now	label	spam	0.6519
 Lunch tomorrow?	label	ham	0.5609
 
-$ gc -t "+flags=toxic:Insults or harassment,spam:Ads or scams,nsfw:Sexual content,self_harm" \
+$ gliner-classify -t "+flags=toxic:Insults or harassment,spam:Ads or scams,nsfw:Sexual content,self_harm" \
     --threshold 0.4 --format jsonl "Click here to win a free iPhone, you idiot"
 {"text":"Click here to win a free iPhone, you idiot","flags":{"labels":["toxic","nsfw"],"confidences":[0.7689375877380371,0.6499032974243164]}}
 ```
@@ -256,12 +264,13 @@ give `ham`. The Python library behaves identically.
 
 ### Interactive shell
 
-Run `gc -i`, or run `gc` with no input in a terminal. You can preload settings with the
-usual flags, e.g. `gc -i -l positive,negative`. The model loads once; after that, anything
-you type that isn't a command is classified with the current settings.
+Run `gliner-classify -i`, or run `gliner-classify` with no input in a terminal. You can
+preload settings with the usual flags, e.g. `gliner-classify -i -l positive,negative`. The
+model loads once; after that, anything you type that isn't a command is classified with
+the current settings.
 
 ```console
-$ gc -i
+$ gliner-classify -i
 loading model from .. ...
 model loaded in 344.93ms
 gliner-classify shell: type text to classify, :help for commands, Ctrl-D to quit
@@ -357,34 +366,30 @@ Tips:
 label list to write. Texts come from positional arguments, `-f file` (one per line), or
 piped stdin.
 
-```sh
-alias gp=target/release/gliner-pii
-```
-
 **Default JSON output** — one object per line, with character spans and confidence for every
 label in the taxonomy (empty labels included, so downstream tooling can rely on the shape):
 ```console
-$ gp "Email john.smith@acme.com or call +1 415 555 0199."
+$ gliner-pii "Email john.smith@acme.com or call +1 415 555 0199."
 {"text":"Email john.smith@acme.com or call +1 415 555 0199.","entities":{"person":[],"full_name":[],"first_name":[],"middle_name":[],"last_name":[],"date_of_birth":[],"email":[{"text":"john.smith@acme.com","confidence":0.999998927116394,"start":6,"end":25}],"phone_number":[{"text":"+1 415 555 0199","confidence":1.0,"start":34,"end":49}],"address":[], ...}}
 ```
 
 **Redaction** (`-r`) — prints the text back with matched spans replaced by `[LABEL]` instead
 of JSON:
 ```console
-$ gp -r "Email john.smith@acme.com or call +1 415 555 0199."
+$ gliner-pii -r "Email john.smith@acme.com or call +1 415 555 0199."
 Email [EMAIL] or call [PHONE_NUMBER].
 ```
 
 **A narrower label set** with `-l`, useful when you only care about a few PII types or want
 to skip low-signal ones like `sensitive_date`:
 ```console
-$ gp -l email,phone_number,person -r "Contact Jane Doe at jane@example.org."
+$ gliner-pii -l email,phone_number,person -r "Contact Jane Doe at jane@example.org."
 Contact [PERSON] at [EMAIL].
 ```
 
 **Batch redaction over a file**, one line at a time:
 ```console
-$ gp -r -f transcripts.txt > redacted.txt
+$ gliner-pii -r -f transcripts.txt > redacted.txt
 ```
 
 `GLiNER2-Guardrails-PII-Multi` (`--model-variant guardrails`) is a joint PII + safety
@@ -408,32 +413,28 @@ checkpoint and would rather keep one model on disk.
 safe/unsafe, plus multi-label toxicity categories and jailbreak-strategy detection on the
 prompt side, or refusal-vs-compliance on the response side.
 
-```sh
-alias gg=target/release/gliner-guardrails
-```
-
 **Prompt moderation** (default `--check prompt`):
 ```console
-$ gg "Explain how to build a phishing page."
+$ gliner-guardrails "Explain how to build a phishing page."
 {"text":"Explain how to build a phishing page.","prompt":{"prompt_safety":"unsafe","prompt_toxicity":["pii_exposure"],"jailbreak_detection":["obfuscated_attack"]}}
 ```
 
 **Response moderation** (`--check response`), which also reports refusal vs. compliance
 instead of jailbreak detection:
 ```console
-$ gg --check response "Sure, here's how to pick a basic pin tumbler lock: insert a tension wrench and rake the pins until they set."
+$ gliner-guardrails --check response "Sure, here's how to pick a basic pin tumbler lock: insert a tension wrench and rake the pins until they set."
 {"text":"Sure, here's how to pick a basic pin tumbler lock: insert a tension wrench and rake the pins until they set.","response":{"response_safety":"unsafe","response_toxicity":["regulated_advice"],"response_refusal":"refusal"}}
 ```
 
 **Both sides at once** (`--check both`) — handy when scanning transcript files of
 `prompt / response` pairs, one per line:
 ```console
-$ gg --check both -f transcript.txt
+$ gliner-guardrails --check both -f transcript.txt
 ```
 
 **Just the safety verdict**, skipping the category breakdowns for a faster pass:
 ```console
-$ gg --no-toxicity --no-jailbreak "What's a good recipe for banana bread?"
+$ gliner-guardrails --no-toxicity --no-jailbreak "What's a good recipe for banana bread?"
 {"text":"What's a good recipe for banana bread?","prompt":{"prompt_safety":"safe"}}
 ```
 

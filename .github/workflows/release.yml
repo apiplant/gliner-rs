@@ -5,9 +5,9 @@ name: release
 #   git tag v0.x.0 && git push origin v0.x.0
 #
 # That builds gliner, gliner-classify, gliner-pii and gliner-guardrails for
-# every supported platform, attaches the archives, checksums, and distro
-# packages to the GitHub release, and publishes the gliner-rs library crate
-# to crates.io.
+# every supported platform (plus a CUDA-enabled build for Linux x86_64),
+# attaches the archives, checksums, and distro packages to the GitHub
+# release, and publishes the gliner-rs library crate to crates.io.
 on:
   push:
     tags:
@@ -78,6 +78,69 @@ jobs:
           path: |
             gliner-rs-*.tar.gz
             gliner-rs-*.tar.gz.sha256
+          if-no-files-found: error
+
+  # A second, CUDA-enabled build of the same four binaries, x86_64 Linux
+  # only (the only platform with both a CUDA toolkit and an audience for it).
+  # It needs nvcc and the CUDA headers/stub libs at *build* time, not a GPU —
+  # the devel container image provides those without needing a GPU runner.
+  # Shipped as a plain archive alongside the CPU one, not as a distro package:
+  # a .deb/pacman/Homebrew package would need to depend on a matching CUDA
+  # runtime version, which those ecosystems have no clean way to express here.
+  cuda-binary:
+    name: x86_64-unknown-linux-gnu (cuda)
+    runs-on: ubuntu-22.04
+    # Pinned to 12.1: CUDA 12.2+'s cuda_fp16.h defines __hmax_nan/__hmin_nan
+    # unconditionally (not gated on __CUDA_ARCH__), while candle-kernels
+    # 0.11's compatibility.cuh redefines them for arch < 800 regardless of
+    # toolkit version, so anything newer than 12.1 fails with "function
+    # already defined". No candle-kernels release fixes this yet.
+    container: nvidia/cuda:12.1.1-devel-ubuntu22.04
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl build-essential pkg-config ca-certificates git
+
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-gnu-cuda
+
+      - name: Build
+        env:
+          # The runner has no GPU, so candle's build script can't query
+          # nvidia-smi for the compute capability - pin one explicitly.
+          # 75 covers Turing (T4) through common consumer/datacenter cards;
+          # widen with a comma-separated list if you need to target others.
+          CUDA_COMPUTE_CAP: "75"
+        run: cargo build --release --locked --bins --features cuda
+
+      - name: Package
+        shell: bash
+        run: |
+          name="gliner-rs-cuda-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          mkdir "$name"
+          cp target/release/gliner "$name/"
+          cp target/release/gliner-classify "$name/"
+          cp target/release/gliner-pii "$name/"
+          cp target/release/gliner-guardrails "$name/"
+          cp README.md "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-x86_64-unknown-linux-gnu-cuda
+          path: |
+            gliner-rs-cuda-*.tar.gz
+            gliner-rs-cuda-*.tar.gz.sha256
           if-no-files-found: error
 
   # Repackaging, not building: the .debs and the pacman package are assembled
@@ -237,7 +300,7 @@ jobs:
 
   release:
     name: publish release
-    needs: [binaries, packages]
+    needs: [binaries, cuda-binary, packages]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -276,6 +339,13 @@ jobs:
             | Linux aarch64 | `gliner-rs-${{ github.ref_name }}-aarch64-unknown-linux-gnu.tar.gz` |
 
             Each archive holds `gliner`, `gliner-classify`, `gliner-pii` and `gliner-guardrails`.
+
+            ## CUDA build
+
+            A CUDA-enabled build of the same four binaries, Linux x86_64 only:
+            `gliner-rs-cuda-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz`.
+            Requires a CUDA-capable GPU and a host CUDA driver compatible with the
+            toolkit version it was built against (see `packaging/README.md`).
 
             ## Debian packages
 

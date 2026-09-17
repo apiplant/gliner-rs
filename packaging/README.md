@@ -42,12 +42,24 @@ secrets are copied — still gets a clean release.
 | --- | --- |
 | macOS (Apple Silicon, `aarch64-apple-darwin`) | archive + Homebrew formula |
 | Linux x86_64 (`x86_64-unknown-linux-gnu`) | archive, `.deb` + apt repo, Arch package + pacman repo, Homebrew formula |
+| Linux x86_64, CUDA (`x86_64-unknown-linux-gnu` + `--features cuda`) | archive only |
 | Linux aarch64 (`aarch64-unknown-linux-gnu`) | archive, `.deb` + apt repo, Homebrew formula |
 | Any platform Cargo runs on | `cargo install gliner-rs`, via crates.io |
 
 The Arch package is x86_64 only: it would need an arm runner or emulation to
 build, and the Arch repository has no aarch64 audience. The `.deb`, the apt
 repo and the plain archive still cover Linux arm64.
+
+The CUDA build (`gliner-rs-cuda-<tag>-x86_64-unknown-linux-gnu.tar.gz`) is
+compiled in the `cuda-binary` job, in an `nvidia/cuda:12.6.3-devel-ubuntu22.04`
+container — that gives `nvcc` and the CUDA headers/stub libraries the build
+needs (`candle-core`'s `cuda` feature links `cudarc` against them), without
+needing an actual GPU on the runner. It ships as a plain archive only, not a
+`.deb`/Arch/Homebrew package: those ecosystems have no clean way to express
+"needs a host NVIDIA driver compatible with CUDA 12.6", so a user installing
+it needs to already know that and have it. There is no aarch64 or macOS CUDA
+build — no CUDA on Apple Silicon, and no arm64 CUDA audience to justify the
+extra job.
 
 The order is: build every archive, build the distro packages from those
 archives, publish the release, then publish to crates.io, Homebrew, apt and
@@ -93,7 +105,10 @@ sudo pacman -U gliner-rs-*-x86_64.pkg.tar.zst
 
 Or just download and unpack the archive for your platform from the release
 page — all four binaries are static enough to run from anywhere, no
-installation required.
+installation required. On Linux x86_64 with an NVIDIA GPU, download the
+`-cuda` archive instead (`gliner-rs-cuda-<tag>-x86_64-unknown-linux-gnu.tar.gz`)
+for CUDA-accelerated inference; it needs a host driver compatible with the
+CUDA 12.6 toolkit it was built against.
 
 As a Rust library, or to build the CLIs from source, via crates.io:
 
