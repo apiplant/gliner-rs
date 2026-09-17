@@ -18,7 +18,7 @@
     }
   },
   {
-    "text": "Angela Merkel traf Emmanuel Macron am Montag in Berlin, um über die Zukunft der Europäischen Union zu sprechen.",
+    "text": "Angela Merkel traf Emmanuel Macron am Montag in Berlin, um \u00fcber die Zukunft der Europ\u00e4ischen Union zu sprechen.",
     "entities": [
       "person",
       "location",
@@ -31,7 +31,7 @@
     ]
   },
   {
-    "text": "马云于1999年在杭州创立了阿里巴巴集团。",
+    "text": "\u9a6c\u4e91\u4e8e1999\u5e74\u5728\u676d\u5dde\u521b\u7acb\u4e86\u963f\u91cc\u5df4\u5df4\u96c6\u56e2\u3002",
     "char_split": true,
     "entities": [
       "person",
@@ -41,7 +41,7 @@
     ]
   },
   {
-    "text": "Contact john.doe@example.com or visit https://www.example.org/help before 5 March 2024; ask for Dr. María José García-López.",
+    "text": "Contact john.doe@example.com or visit https://www.example.org/help before 5 March 2024; ask for Dr. Mar\u00eda Jos\u00e9 Garc\u00eda-L\u00f3pez.",
     "entities": [
       "email",
       "url",
@@ -192,7 +192,7 @@
     ]
   },
   {
-    "text": "Maria kaufte zwei Bücher bei Thalia in München, und Jonas bestellte einen Laptop bei Amazon.",
+    "text": "Maria kaufte zwei B\u00fccher bei Thalia in M\u00fcnchen, und Jonas bestellte einen Laptop bei Amazon.",
     "json": {
       "purchase": [
         "buyer::str",
@@ -209,6 +209,33 @@
         "name::str",
         "age::str"
       ]
+    }
+  },
+  {
+    "text": "Apple released a red iPhone and a blue MacBook this year.",
+    "entities": [
+      "product"
+    ],
+    "entity_attributes": {
+      "color": {
+        "labels": [
+          "red",
+          "blue",
+          "green"
+        ],
+        "applies_to": [
+          "product"
+        ]
+      },
+      "tags": {
+        "labels": [
+          "premium",
+          "discounted"
+        ],
+        "multi_label": true,
+        "threshold": 0.3,
+        "qualify_labels": true
+      }
     }
   }
 ]

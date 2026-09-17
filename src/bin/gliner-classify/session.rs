@@ -145,9 +145,10 @@ impl Session {
     /// Classify `texts` and print them in the session format.
     pub fn run(&self, model: &GLiNER2, texts: &[String]) -> Result<()> {
         let specs = self.specs()?;
+        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let all_results = model.classification_probabilities_batch(&refs, &specs)?;
         let mut json_rows = Vec::new();
-        for text in texts {
-            let results = model.classification_probabilities(text, &specs)?;
+        for (text, results) in texts.iter().zip(&all_results) {
             match self.format {
                 Format::Text => {
                     let line = self.render_text(&specs, &results);
@@ -158,7 +159,7 @@ impl Session {
                     }
                 }
                 Format::Tsv => {
-                    for (spec, (task, probs)) in specs.iter().zip(&results) {
+                    for (spec, (task, probs)) in specs.iter().zip(results.iter()) {
                         for (label, p) in predict(spec, probs) {
                             println!("{}\t{task}\t{label}\t{p:.4}", one_line(text));
                         }

@@ -7,7 +7,7 @@ import json
 import sys
 
 import torch
-from gliner2 import AutoExtractor
+from gliner2 import AutoExtractor, AttributeGroup
 from gliner2.processing.word_splitter import CharLevelSplitter, WhitespaceTokenSplitter
 
 LONG_TEXT = " ".join(
@@ -36,6 +36,18 @@ def main():
             schema.entities(case["entities"])
         if case.get("relations"):
             schema.relations(case["relations"])
+        if case.get("entity_attributes"):
+            groups = {
+                name: AttributeGroup(
+                    labels=g["labels"],
+                    multi_label=g.get("multi_label", False),
+                    threshold=g.get("threshold", 0.5),
+                    applies_to=g.get("applies_to"),
+                    qualify_labels=g.get("qualify_labels", False),
+                )
+                for name, g in case["entity_attributes"].items()
+            }
+            schema.entity_attributes(groups)
         for cls in case.get("classifications", []):
             cfg = dict(cls)
             schema.classification(cfg.pop("task"), cfg.pop("labels"), **cfg)

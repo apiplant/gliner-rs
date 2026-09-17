@@ -15,6 +15,7 @@
 //! # anyhow::Ok(())
 //! ```
 
+pub mod chunking;
 pub mod config;
 pub mod deberta;
 pub mod decode;
@@ -26,10 +27,12 @@ pub mod processor;
 pub mod records;
 pub mod schema;
 
+pub use chunking::ChunkOptions;
 pub use decode::OverlapPolicy;
 pub use model::{ExtractOptions, GLiNER2};
 pub use processor::WordSplitter;
+pub use records::Cardinality;
 pub use schema::{
-    ClassActivation, ClassificationSpec, EntityDtype, EntitySpec, FieldDtype, FieldSpec, RelationSpec, Schema,
-    StructureMode, StructureSpec,
+    AttributeGroup, ClassActivation, ClassificationSpec, EntityDtype, EntitySpec, FieldDtype, FieldSpec,
+    RegexValidator, RelationSpec, Schema, StructureMode, StructureSpec, ValidatorMode,
 };

@@ -17,6 +17,10 @@ fn default_pooling() -> String {
     "first".to_string()
 }
 
+fn default_record_instance_queries() -> usize {
+    32
+}
+
 /// Subset of `BoundaryHeadSettings` that affects inference.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BoundaryHeadConfig {
@@ -62,6 +66,8 @@ pub struct BoundaryHeadConfig {
     pub enable_records: bool,
     pub record_dim: usize,
     pub record_temperature: f32,
+    #[serde(default = "default_record_instance_queries")]
+    pub record_instance_queries: usize,
 }
 
 /// DeBERTa-v2 encoder configuration.

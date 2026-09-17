@@ -14,18 +14,39 @@ Supported:
 - Text classification: single- or multi-label, label descriptions, few-shot examples.
 - Relation extraction: typed capped pair proposal, the biaffine relation scorer, and edge
   deduplication.
-- Structured extraction (`extract_json`): the record head in natural mode (the first field is
-  the anchor and each record keeps its own values), `str`/`list` fields, descriptions,
-  thresholds, and choice fields (`status::[shipped|pending]`), including literal-mention
-  binding and prefix scoring. `StructureMode::Legacy` gives the aggregate decoder.
+- Structured extraction (`extract_json`, or `Schema::structure` for the full builder):
+  the record head in `natural` mode (a field is the anchor — the first by default, or
+  pick one with `StructureSpec::anchor`; each record keeps its own values), plus `latent`
+  mode (no declared anchor: the head's own learned selector chooses which mention seeds
+  each instance) and `anchorless` mode (document-conditioned learned instance queries,
+  for records not seeded by any single span). Per-field `cardinality`
+  (`optional_one`/`required_one`/`zero_or_more`/`one_or_more`, `FieldSpec::cardinality`)
+  and `exclusive` (`FieldSpec::exclusive`) refine how mentions bind to fields; `str`/`list`
+  fields, descriptions, thresholds, and choice fields (`status::[shipped|pending]`,
+  including literal-mention binding and prefix scoring) all work in every mode.
+  `StructureMode::Legacy` gives the aggregate decoder instead of the record head.
+- Regex validators (`RegexValidator`, `EntitySpec::validator` / `FieldSpec::validator`):
+  a post-filter on an extracted span's surface text, full or partial match, optionally
+  inverted.
+- Entity attributes (`AttributeGroup`, `Schema::entity_attributes`): extra typed properties
+  force-scored at an already-extracted entity's exact span (e.g. a `color` or `sentiment`
+  attribute on a `product` entity), single- or multi-label per group, with an optional
+  `applies_to` restriction and `qualify_labels` to disambiguate label text shared across
+  groups.
 - Any mix of the above in one schema, which runs as a single encoder pass.
 - Whitespace and character-level (CJK) word splitters.
+- Long documents: `extract_entities_long`, `extract_relations_long`, `extract_json_long`,
+  `classify_text_long`, and generic `extract_long` split the text into overlapping word
+  chunks, run each chunk through the normal single-pass API, remap every span back to
+  character offsets in the original document, and merge duplicate predictions across
+  overlaps under the same `flat`/`nested`/`allow`/`longest` overlap policies.
+- Batching: `extract_batch`, `extract_entities_batch`, `extract_relations_batch`,
+  `extract_json_batch`, `classify_text_batch`, and `classification_probabilities_batch` run
+  several texts against the *same* schema in one padded encoder pass instead of one call per
+  text; each text's result is identical to what the single-text method would give it alone.
+  `gliner-classify` uses this for `-f`/multi-text input.
 - CPU, or CUDA with `--features cuda`. The encoder can run in F32 or F16; the heads always
   run in F32.
-
-Not supported yet: explicit record options beyond what `extract_json` sets (latent and
-anchorless modes, custom anchors, cardinality, or non-exclusive fields), entity attributes,
-regex validators, `*_long` chunking, and batching (the API takes one text per call).
 
 ## Installation
 
@@ -135,6 +156,80 @@ let orders = model.extract_json(
 
 The output JSON follows gliner2's formatted results. `start` and `end` are character
 (code point) offsets, which is the same convention as Python string indexing.
+
+Entity attributes attach extra properties to an already-extracted entity's exact span,
+instead of proposing spans of their own:
+
+```rust
+use gliner_rs::AttributeGroup;
+
+let schema = Schema::new().entities(["product"]).entity_attributes([(
+    "color",
+    AttributeGroup::new(["red", "blue", "green"]).applies_to(["product"]),
+)]);
+let result = model.extract("Apple released a red iPhone this year.", &schema, &opts)?;
+// entities.product[0] == {"text": "iPhone", "color": {"label": "red", "confidence": 0.94}, ...}
+```
+
+A group is single-label by default (softmax + argmax over its values); call
+`.multi_label(threshold)` for independent sigmoid decisions instead. `.qualify_labels()`
+prefixes a group's values with its name in the model-facing prompt (`"color: red"`) while
+keeping the returned label unqualified, for when the same value string is meaningful in more
+than one group.
+
+### Long documents
+
+Every extraction method has a `_long` counterpart for text that overruns the encoder's
+context window (the boundary architecture's default checkpoints top out at 512 tokens):
+
+```rust
+use gliner_rs::ChunkOptions;
+
+let result = model.extract_entities_long(
+    &long_document,
+    &["person", "company", "location"],
+    &ExtractOptions { include_spans: true, ..Default::default() },
+    ChunkOptions::default(), // 384-word chunks, 64-word overlap
+)?;
+```
+
+The document is split into overlapping word windows (`ChunkOptions::chunk_size`/
+`chunk_overlap`, in words as counted by the active word splitter), each window is run
+through the ordinary single-pass API, and every span in the result is remapped to
+character offsets in the *original* document before merging. Predictions that show up in
+more than one chunk's overlap region are deduplicated: exact re-detections keep their
+highest-confidence copy, and genuine span overlaps are resolved with `opts.overlap_policy`
+(default `flat`, i.e. the maximum-total-confidence non-overlapping set — the same four
+policies as single-pass entity extraction apply here too). Relation edges are always
+merged with `allow`, since a chunk boundary can only ever re-detect the same edge, not
+create a genuine overlap to resolve. `extract_relations_long` and `extract_json_long`
+never synthesize relations or record fields across a chunk boundary — an edge or field only
+survives if both halves it needs were extracted from the same chunk.
+
+`extract_long` is the schema-based generic entry point the four convenience methods above
+build on, for schemas that mix entities, relations, structures and classification in one
+chunked pass.
+
+### Batching
+
+Every extraction and classification method has a `_batch` counterpart for running several
+*independent* texts against the same schema in one encoder pass instead of one call per text:
+
+```rust
+let texts = ["Apple released a new iPhone.", "Nvidia unveiled a new GPU."];
+let results = model.extract_entities_batch(
+    &texts,
+    &["company", "product"],
+    &ExtractOptions::default(),
+)?; // one Value per text, in order
+```
+
+The texts are tokenized independently, padded to the batch's longest sequence, and run
+through the encoder together; padding is masked out of attention so every text's result is
+identical to what the single-text method would give it alone — batching only saves encoder
+calls, it never changes an answer. `gliner-classify` uses `classification_probabilities_batch`
+for `-f`/multi-text input. As with the rest of the API, one call takes one schema: every text
+in a batch is scored against the same entities/labels/structures, only the documents vary.
 
 ## CLI checkpoint resolution
 
@@ -468,7 +563,8 @@ python scripts/compare.py py.jsonl rs.jsonl 1e-4
 
 The cases cover English, German and Chinese text, `extract_json` records (multi-record,
 choice fields, descriptions, legacy mode, no match), descriptions, mixed multi-task schemas,
-emails and URLs, and a text of about 1,000 words that exercises the log-bucketed relative
+emails and URLs, entity attributes (single- and multi-label groups, `applies_to`,
+`qualify_labels`), and a text of about 1,000 words that exercises the log-bucketed relative
 positions and the windowed boundary attention. On CPU, every span, label and structure
 matches, and confidences agree within 1e-4 (usually about 1e-6). The one reported
 difference is the order of two spans whose scores differ by 1e-7.

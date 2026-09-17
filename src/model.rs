@@ -1,6 +1,6 @@
 //! End-to-end extractor: load a checkpoint directory and run schema extraction.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -9,6 +9,7 @@ use candle_nn::VarBuilder;
 use serde_json::{json, Map, Value};
 use tokenizers::Tokenizer;
 
+use crate::chunking::ChunkOptions;
 use crate::config::{load_configs, load_span_configs, sniff_architecture, Architecture, EncoderConfig, ExtractorConfig, SpanConfig};
 use crate::deberta::DebertaV2;
 use crate::decode::{
@@ -17,7 +18,7 @@ use crate::decode::{
 };
 use crate::heads::{BoundaryForward, BoundaryHead, Classifier, CountLstmStep0, CountPred, RelationScorer, SpanRep};
 use crate::processor::{PreparedInput, Processor, TaskKind, WordSplitter};
-use crate::records::{decode_natural, record_local_choice_mentions, Cardinality, RecordField, RecordHead};
+use crate::records::{decode_group, record_local_choice_mentions, Cardinality, RecordField, RecordHead, RecordMode};
 use crate::schema::{
     ClassActivation, ClassificationSpec, EntityDtype, FieldDtype, FieldSpec, Schema, StructureMode, StructureSpec,
 };
@@ -49,6 +50,13 @@ impl GLiNER2 {
         }
     }
 
+    pub fn word_splitter(&self) -> WordSplitter {
+        match self {
+            Self::Boundary(m) => m.word_splitter(),
+            Self::Span(m) => m.word_splitter(),
+        }
+    }
+
     pub fn extract_entities(&self, text: &str, labels: &[&str], opts: &ExtractOptions) -> Result<Value> {
         self.extract(text, &Schema::new().entities(labels.iter().copied()), opts)
     }
@@ -73,6 +81,19 @@ impl GLiNER2 {
         }
     }
 
+    /// [`Self::classification_probabilities`] for several texts, encoded in
+    /// one padded batch pass.
+    pub fn classification_probabilities_batch(
+        &self,
+        texts: &[&str],
+        tasks: &[ClassificationSpec],
+    ) -> Result<Vec<Vec<(String, Vec<(String, f32)>)>>> {
+        match self {
+            Self::Boundary(m) => m.classification_probabilities_batch(texts, tasks),
+            Self::Span(m) => m.classification_probabilities_batch(texts, tasks),
+        }
+    }
+
     pub fn extract_json(&self, text: &str, structures: &[(&str, &[&str])], opts: &ExtractOptions) -> Result<Value> {
         let schema = structures
             .iter()
@@ -85,6 +106,113 @@ impl GLiNER2 {
             Self::Boundary(m) => m.extract(text, schema, opts),
             Self::Span(m) => m.extract(text, schema, opts),
         }
+    }
+
+    pub fn extract_entities_batch(&self, texts: &[&str], labels: &[&str], opts: &ExtractOptions) -> Result<Vec<Value>> {
+        self.extract_batch(texts, &Schema::new().entities(labels.iter().copied()), opts)
+    }
+
+    pub fn extract_relations_batch(&self, texts: &[&str], relations: &[&str], opts: &ExtractOptions) -> Result<Vec<Value>> {
+        self.extract_batch(texts, &Schema::new().relations(relations.iter().copied()), opts)
+    }
+
+    pub fn classify_text_batch(&self, texts: &[&str], tasks: Vec<ClassificationSpec>, opts: &ExtractOptions) -> Result<Vec<Value>> {
+        let schema = tasks.into_iter().fold(Schema::new(), Schema::classification);
+        self.extract_batch(texts, &schema, opts)
+    }
+
+    pub fn extract_json_batch(
+        &self,
+        texts: &[&str],
+        structures: &[(&str, &[&str])],
+        opts: &ExtractOptions,
+    ) -> Result<Vec<Value>> {
+        let schema = structures
+            .iter()
+            .fold(Schema::new(), |schema, (name, fields)| schema.structure(StructureSpec::parse(*name, fields.iter())));
+        self.extract_batch(texts, &schema, opts)
+    }
+
+    /// [`Self::extract`] for several texts against the same `schema`,
+    /// encoded in one padded batch pass instead of one encoder call per
+    /// text. Each text's result is exactly what [`Self::extract`] would give
+    /// it alone; only `texts` may vary across a call, not `schema`.
+    pub fn extract_batch(&self, texts: &[&str], schema: &Schema, opts: &ExtractOptions) -> Result<Vec<Value>> {
+        match self {
+            Self::Boundary(m) => m.extract_batch(texts, schema, opts),
+            Self::Span(m) => m.extract_batch(texts, schema, opts),
+        }
+    }
+
+    /// [`Self::extract_entities`] for documents longer than the encoder's
+    /// context: `text` is split into overlapping word chunks (`chunk_opts`),
+    /// each chunk is extracted independently, and spans are remapped to
+    /// character offsets in the original `text` and merged across overlaps.
+    pub fn extract_entities_long(
+        &self,
+        text: &str,
+        labels: &[&str],
+        opts: &ExtractOptions,
+        chunk_opts: ChunkOptions,
+    ) -> Result<Value> {
+        self.extract_long(text, &Schema::new().entities(labels.iter().copied()), opts, chunk_opts)
+    }
+
+    /// Long-document counterpart of [`Self::extract_relations`]; see
+    /// [`Self::extract_entities_long`].
+    pub fn extract_relations_long(
+        &self,
+        text: &str,
+        relations: &[&str],
+        opts: &ExtractOptions,
+        chunk_opts: ChunkOptions,
+    ) -> Result<Value> {
+        self.extract_long(text, &Schema::new().relations(relations.iter().copied()), opts, chunk_opts)
+    }
+
+    /// Long-document counterpart of [`Self::classify_text`]; see
+    /// [`Self::extract_entities_long`]. Per-chunk label scores are decided
+    /// independently and merged (highest-confidence wins on disagreement),
+    /// not aggregated before decoding.
+    pub fn classify_text_long(
+        &self,
+        text: &str,
+        tasks: Vec<ClassificationSpec>,
+        opts: &ExtractOptions,
+        chunk_opts: ChunkOptions,
+    ) -> Result<Value> {
+        let schema = tasks.into_iter().fold(Schema::new(), Schema::classification);
+        self.extract_long(text, &schema, opts, chunk_opts)
+    }
+
+    /// Long-document counterpart of [`Self::extract_json`]; see
+    /// [`Self::extract_entities_long`].
+    pub fn extract_json_long(
+        &self,
+        text: &str,
+        structures: &[(&str, &[&str])],
+        opts: &ExtractOptions,
+        chunk_opts: ChunkOptions,
+    ) -> Result<Value> {
+        let schema = structures
+            .iter()
+            .fold(Schema::new(), |schema, (name, fields)| schema.structure(StructureSpec::parse(*name, fields.iter())));
+        self.extract_long(text, &schema, opts, chunk_opts)
+    }
+
+    /// Long-document counterpart of [`Self::extract`]; see
+    /// [`Self::extract_entities_long`]. `opts.overlap_policy` governs how
+    /// duplicate spans found in overlapping chunks are resolved (default
+    /// `flat`, matching the reference implementation's chunk-merge default).
+    pub fn extract_long(&self, text: &str, schema: &Schema, opts: &ExtractOptions, chunk_opts: ChunkOptions) -> Result<Value> {
+        let chunks = crate::chunking::split_text_into_chunks(text, chunk_opts, self.word_splitter())?;
+        let scalar_entity_labels: HashSet<String> =
+            schema.entities.iter().filter(|e| e.dtype == EntityDtype::Str).map(|e| e.name.clone()).collect();
+        let policy = opts.overlap_policy.unwrap_or(OverlapPolicy::Disallow);
+        let merge_opts = ExtractOptions { include_confidence: true, include_spans: true, ..opts.clone() };
+        crate::chunking::extract_chunked(text, &chunks, &scalar_entity_labels, policy, opts.include_confidence, opts.include_spans, |chunk_text| {
+            self.extract(chunk_text, schema, &merge_opts)
+        })
     }
 }
 
@@ -220,7 +348,10 @@ impl BoundaryModel {
             None
         };
         let record_head = if cfg.enable_records {
-            Some(RecordHead::load(head_vb.pp("record_decoder"), hidden, cfg.record_dim).context("loading record head")?)
+            Some(
+                RecordHead::load(head_vb.pp("record_decoder"), hidden, cfg.record_dim, cfg.record_instance_queries)
+                    .context("loading record head")?,
+            )
         } else {
             None
         };
@@ -248,6 +379,10 @@ impl BoundaryModel {
     /// Use `WordSplitter::Char` for languages without whitespace-delimited words.
     pub fn set_word_splitter(&mut self, splitter: WordSplitter) {
         self.processor.word_splitter = splitter;
+    }
+
+    pub fn word_splitter(&self) -> WordSplitter {
+        self.processor.word_splitter
     }
 
     pub fn processor(&self) -> &Processor {
@@ -278,11 +413,38 @@ impl BoundaryModel {
         let schema = tasks.iter().cloned().fold(Schema::new(), Schema::classification);
         let input = self.processor.prepare(text, &schema, None)?;
         let states = self.encode(&input)?;
+        self.classification_probabilities_from_states(&input, &states, tasks)
+    }
+
+    /// [`Self::classification_probabilities`] for several texts against the
+    /// same `tasks`, encoded in one padded batch pass.
+    pub fn classification_probabilities_batch(
+        &self,
+        texts: &[&str],
+        tasks: &[ClassificationSpec],
+    ) -> Result<Vec<Vec<(String, Vec<(String, f32)>)>>> {
+        let schema = tasks.iter().cloned().fold(Schema::new(), Schema::classification);
+        let inputs: Vec<PreparedInput> =
+            texts.iter().map(|text| self.processor.prepare(text, &schema, None)).collect::<Result<_>>()?;
+        let states = self.encode_batch(&inputs)?;
+        inputs
+            .iter()
+            .zip(states.iter())
+            .map(|(input, states)| self.classification_probabilities_from_states(input, states, tasks))
+            .collect()
+    }
+
+    fn classification_probabilities_from_states(
+        &self,
+        input: &PreparedInput,
+        states: &Tensor,
+        tasks: &[ClassificationSpec],
+    ) -> Result<Vec<(String, Vec<(String, f32)>)>> {
         let temperature = self.config.boundary_head.classification_temperature;
         let mut out = Vec::new();
         for group in input.groups.iter().filter(|g| g.kind == TaskKind::Classifications) {
             let spec = &tasks[group.spec_index];
-            let label_states = self.gather_rows(&states, &group.marker_positions)?;
+            let label_states = self.gather_rows(states, &group.marker_positions)?;
             let logits: Vec<f32> =
                 self.classifier.forward(&label_states)?.into_iter().map(|x| x / temperature).collect();
             let probs = classification_probs(spec, &logits);
@@ -308,6 +470,31 @@ impl BoundaryModel {
         Ok(self.encoder.forward(&ids, &mask)?.squeeze(0)?.to_dtype(DType::F32)?)
     }
 
+    /// Encode a batch of prepared inputs in one padded encoder pass (real
+    /// tokens attend only to real tokens, so per-example results are exactly
+    /// what [`Self::encode`] would give for that text alone); returns one
+    /// `[T_i, H]` float32 state tensor per input, in order.
+    fn encode_batch(&self, inputs: &[PreparedInput]) -> Result<Vec<Tensor>> {
+        let b = inputs.len();
+        let max_t = inputs.iter().map(|i| i.input_ids.len()).max().unwrap_or(0);
+        let mut ids = vec![0u32; b * max_t];
+        let mut mask = vec![0u32; b * max_t];
+        for (i, input) in inputs.iter().enumerate() {
+            for (j, &id) in input.input_ids.iter().enumerate() {
+                ids[i * max_t + j] = id;
+                mask[i * max_t + j] = 1;
+            }
+        }
+        let ids = Tensor::from_vec(ids, (b, max_t), &self.device)?;
+        let mask = Tensor::from_vec(mask, (b, max_t), &self.device)?;
+        let states = self.encoder.forward(&ids, &mask)?.to_dtype(DType::F32)?;
+        inputs
+            .iter()
+            .enumerate()
+            .map(|(i, input)| Ok(states.narrow(0, i, 1)?.squeeze(0)?.narrow(0, 0, input.input_ids.len())?.contiguous()?))
+            .collect()
+    }
+
     fn gather_rows(&self, states: &Tensor, positions: &[usize]) -> Result<Tensor> {
         let idx: Vec<u32> = positions.iter().map(|&p| p as u32).collect();
         let idx = Tensor::from_vec(idx, positions.len(), &self.device)?;
@@ -318,13 +505,27 @@ impl BoundaryModel {
     /// `gliner2`'s formatted results; `start`/`end` are character (code point)
     /// offsets into `text`.
     pub fn extract(&self, text: &str, schema: &Schema, opts: &ExtractOptions) -> Result<Value> {
+        let input = self.processor.prepare(text, schema, opts.max_words)?;
+        let states = self.encode(&input)?;
+        self.extract_from_states(&input, &states, schema, opts)
+    }
+
+    /// [`Self::extract`] for several texts against the same `schema`, encoded
+    /// in one padded batch pass. Each text's result is identical to what
+    /// [`Self::extract`] would give it alone.
+    pub fn extract_batch(&self, texts: &[&str], schema: &Schema, opts: &ExtractOptions) -> Result<Vec<Value>> {
+        let inputs: Vec<PreparedInput> =
+            texts.iter().map(|text| self.processor.prepare(text, schema, opts.max_words)).collect::<Result<_>>()?;
+        let states = self.encode_batch(&inputs)?;
+        inputs.iter().zip(states.iter()).map(|(input, states)| self.extract_from_states(input, states, schema, opts)).collect()
+    }
+
+    fn extract_from_states(&self, input: &PreparedInput, states: &Tensor, schema: &Schema, opts: &ExtractOptions) -> Result<Value> {
         let cfg = &self.config.boundary_head;
         let policy = match opts.overlap_policy {
             Some(p) => p,
             None => cfg.overlap_policy.parse()?,
         };
-        let input = self.processor.prepare(text, schema, opts.max_words)?;
-        let states = self.encode(&input)?;
 
         let mut slots: Vec<QuerySlot> = Vec::new();
         let mut query_positions: Vec<usize> = Vec::new();
@@ -340,7 +541,7 @@ impl BoundaryModel {
 
         let mut pass = Pass {
             text: &input.text,
-            input: &input,
+            input,
             slots,
             forward: None,
             text_states: None,
@@ -349,8 +550,8 @@ impl BoundaryModel {
             opts,
         };
         if !pass.slots.is_empty() && !input.word_positions.is_empty() {
-            let ts = self.gather_rows(&states, &input.word_positions)?;
-            let qs = self.gather_rows(&states, &query_positions)?;
+            let ts = self.gather_rows(states, &input.word_positions)?;
+            let qs = self.gather_rows(states, &query_positions)?;
             pass.forward = Some(self.head.forward(&ts, &qs)?);
             pass.text_states = Some(ts);
             pass.query_states = Some(qs);
@@ -362,7 +563,8 @@ impl BoundaryModel {
         let structure_groups: Vec<usize> =
             (0..input.groups.len()).filter(|&gi| input.groups[gi].kind == TaskKind::Structures).collect();
         let uses_records = |gi: usize| {
-            self.record_head.is_some() && schema.structures[input.groups[gi].spec_index].mode == StructureMode::Auto
+            self.record_head.is_some()
+                && !matches!(schema.structures[input.groups[gi].spec_index].mode, StructureMode::Legacy)
         };
         for &gi in structure_groups.iter().filter(|&&gi| uses_records(gi)) {
             let spec = &schema.structures[input.groups[gi].spec_index];
@@ -380,7 +582,7 @@ impl BoundaryModel {
 
         // Entities.
         if let Some(group_index) = input.groups.iter().position(|g| g.kind == TaskKind::Entities) {
-            out.insert("entities".to_string(), Value::Object(self.decode_entities(&pass, schema, group_index)));
+            out.insert("entities".to_string(), Value::Object(self.decode_entities(&pass, schema, group_index)?));
         }
 
         // Classifications.
@@ -389,7 +591,7 @@ impl BoundaryModel {
             if group.marker_positions.is_empty() {
                 continue;
             }
-            let label_states = self.gather_rows(&states, &group.marker_positions)?;
+            let label_states = self.gather_rows(states, &group.marker_positions)?;
             let logits: Vec<f32> = self
                 .classifier
                 .forward(&label_states)?
@@ -422,10 +624,14 @@ impl BoundaryModel {
         sigmoid(logit / self.config.boundary_head.pair_temperature)
     }
 
-    fn decode_entities(&self, pass: &Pass, schema: &Schema, group_index: usize) -> Map<String, Value> {
+    fn decode_entities(&self, pass: &Pass, schema: &Schema, group_index: usize) -> Result<Map<String, Value>> {
         let cfg = &self.config.boundary_head;
         let opts = pass.opts;
-        let mut result = Map::new();
+        // Attribute label fields (`Schema::entity_attributes`) get a query
+        // slot but are never emitted as their own entity; they're used below
+        // to force-score attribute values at the entities that ARE emitted.
+        let mut decoded: Vec<(&str, EntityDtype, Vec<Mention>)> = Vec::new();
+        let mut token_spans: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
         for (field_index, spec) in schema.entities.iter().enumerate() {
             let mut items: Vec<Mention> = Vec::new();
             if let (Some(q), Some(fwd)) = (pass.query(group_index, field_index), &pass.forward) {
@@ -437,18 +643,116 @@ impl BoundaryModel {
                     let scored = self.thresholded(sc.spans.as_slice(), &sc.pair_logits[q], threshold);
                     for span in resolve_overlaps(&scored, pass.policy) {
                         if let Some((surface, start, end)) = pass.mention((span.start, span.end)) {
-                            items.push((surface, span.score, start, end));
+                            if spec.validators.iter().all(|v| v.validate(&surface)) {
+                                token_spans.insert((start, end), (span.start, span.end));
+                                items.push((surface, span.score, start, end));
+                            }
                         }
                     }
                 }
             }
-            let value = match spec.dtype {
-                EntityDtype::List => dedup_list(items.iter().map(|m| format_mention(m, opts)).collect()),
-                EntityDtype::Str => items.first().map_or(Value::Null, |m| format_mention(m, opts)),
-            };
-            result.entry(spec.name.clone()).or_insert(value);
+            if !spec.is_attribute {
+                decoded.push((&spec.name, spec.dtype, items));
+            }
         }
-        result
+
+        let attributes = self.attach_entity_attributes(pass, schema, group_index, &decoded, &token_spans)?;
+
+        let mut result = Map::new();
+        for (name, dtype, items) in decoded {
+            let format = |m: &Mention| match attributes.get(&(m.2, m.3)) {
+                Some(extra) if !extra.is_empty() => format_attributed_entity(m, opts, extra),
+                _ => format_mention(m, opts),
+            };
+            let value = match dtype {
+                EntityDtype::List => dedup_list(items.iter().map(format).collect()),
+                EntityDtype::Str => items.first().map_or(Value::Null, format),
+            };
+            result.entry(name.to_string()).or_insert(value);
+        }
+        Ok(result)
+    }
+
+    /// `_attach_entity_attributes`: force-score configured attribute labels
+    /// at every retained entity span via `score_explicit_spans`, bypassing
+    /// the normal top-k boundary-candidate pipeline.
+    fn attach_entity_attributes(
+        &self,
+        pass: &Pass,
+        schema: &Schema,
+        group_index: usize,
+        decoded: &[(&str, EntityDtype, Vec<Mention>)],
+        token_spans: &HashMap<(usize, usize), (usize, usize)>,
+    ) -> Result<HashMap<(usize, usize), Map<String, Value>>> {
+        let mut out: HashMap<(usize, usize), Map<String, Value>> = HashMap::new();
+        if schema.entity_attribute_groups.is_empty() {
+            return Ok(out);
+        }
+        let (Some(fwd), Some(ts), Some(qs)) = (&pass.forward, &pass.text_states, &pass.query_states) else {
+            return Ok(out);
+        };
+
+        let mut spans: Vec<(usize, usize)> = Vec::new();
+        for (_, _, items) in decoded {
+            for &(_, _, start, end) in items {
+                if !spans.contains(&(start, end)) {
+                    spans.push((start, end));
+                }
+            }
+        }
+        if spans.is_empty() {
+            return Ok(out);
+        }
+        let token_span_list: Vec<(usize, usize)> = spans.iter().map(|s| token_spans[s]).collect();
+
+        for (group_name, group) in &schema.entity_attribute_groups {
+            let mut label_query: Vec<(&str, usize)> = Vec::new();
+            for label in &group.labels {
+                let prompt_label = if group.qualify_labels { format!("{group_name}: {label}") } else { label.clone() };
+                let Some(field_index) = schema.entities.iter().position(|e| e.name == prompt_label) else { continue };
+                let Some(q) = pass.query(group_index, field_index) else { continue };
+                label_query.push((label, q));
+            }
+            if label_query.is_empty() {
+                continue;
+            }
+            let mut logits: Vec<Vec<f32>> = Vec::with_capacity(label_query.len());
+            for &(_, q) in &label_query {
+                logits.push(
+                    self.head
+                        .score_explicit_spans(fwd, ts, qs, q, &token_span_list)?
+                        .into_iter()
+                        .map(|x| x / self.config.boundary_head.pair_temperature)
+                        .collect(),
+                );
+            }
+
+            for &(name, _, ref items) in decoded {
+                if group.applies_to.as_ref().is_some_and(|names| !names.iter().any(|n| n == name)) {
+                    continue;
+                }
+                for &(_, _, start, end) in items {
+                    let Some(column) = spans.iter().position(|&s| s == (start, end)) else { continue };
+                    let values: Vec<f32> = logits.iter().map(|row| row[column]).collect();
+                    let value = if group.multi_label {
+                        let chosen: Vec<Value> = values
+                            .iter()
+                            .zip(&label_query)
+                            .map(|(&x, &(label, _))| (label, sigmoid(x)))
+                            .filter(|&(_, p)| p >= group.threshold)
+                            .map(|(label, p)| json!({"label": label, "confidence": p}))
+                            .collect();
+                        Value::Array(chosen)
+                    } else {
+                        let probs = softmax(&values);
+                        let best = argmax(&probs);
+                        json!({"label": label_query[best].0, "confidence": probs[best]})
+                    };
+                    out.entry((start, end)).or_default().insert(group_name.clone(), value);
+                }
+            }
+        }
+        Ok(out)
     }
 
     fn thresholded(&self, spans: &[(usize, usize)], logits: &[f32], threshold: f32) -> Vec<ScoredSpan> {
@@ -471,34 +775,60 @@ impl BoundaryModel {
         let threshold = pass.opts.threshold;
         let scores = &fwd.scores;
 
+        let record_mode = match spec.mode {
+            StructureMode::Latent => RecordMode::Latent,
+            StructureMode::Anchorless => RecordMode::Anchorless,
+            StructureMode::Auto | StructureMode::Legacy => RecordMode::Natural,
+        };
         let mut fields = Vec::new();
         for (fi, field) in spec.fields.iter().enumerate() {
             let Some(query) = pass.query(group_index, fi) else { return Ok(Vec::new()) };
+            let is_anchor = record_mode == RecordMode::Natural
+                && match &spec.anchor {
+                    Some(name) => &field.name == name,
+                    None => fi == 0,
+                };
+            // `_default_cardinality`: an unset cardinality defaults by dtype,
+            // except the anchor field, which is always required.
+            let default_cardinality = if is_anchor {
+                Cardinality::RequiredOne
+            } else {
+                match field.dtype {
+                    FieldDtype::Str => Cardinality::OptionalOne,
+                    FieldDtype::List => Cardinality::ZeroOrMore,
+                }
+            };
             fields.push(RecordField {
                 query,
-                cardinality: match field.dtype {
-                    FieldDtype::Str => Cardinality::RequiredOne,
-                    FieldDtype::List => Cardinality::ZeroOrMore,
-                },
-                is_anchor: fi == 0,
-                exclusive: true,
+                cardinality: field.cardinality.unwrap_or(default_cardinality),
+                is_anchor,
+                exclusive: field.exclusive.unwrap_or(false),
             });
         }
-        if fields.is_empty() {
+        if fields.is_empty() || (record_mode == RecordMode::Natural && !fields.iter().any(|f| f.is_anchor)) {
             return Ok(Vec::new());
         }
         let field_queries = self.gather_rows(query_states, &fields.iter().map(|f| f.query).collect::<Vec<_>>())?;
-        let assign = record_head.assign_logits(&candidate_states, &field_queries)?;
-        let records = decode_natural(
-            &fields,
-            &scores.pair_logits[fields[0].query],
-            &scores.spans,
-            &assign,
-            threshold,
-            cfg.record_temperature,
-        );
+
+        let (object_logits, spans, instance_states) = match record_mode {
+            RecordMode::Natural => {
+                let anchor_query = fields.iter().find(|f| f.is_anchor).unwrap().query;
+                (scores.pair_logits[anchor_query].clone(), Some(scores.spans.clone()), candidate_states.clone())
+            }
+            RecordMode::Latent => {
+                (record_head.latent_seed_scores(&candidate_states)?, Some(scores.spans.clone()), candidate_states.clone())
+            }
+            RecordMode::Anchorless => {
+                let instances = record_head.anchorless_instances(&candidate_states)?;
+                let obj = record_head.object_scores(&instances)?;
+                (obj, None, instances)
+            }
+        };
+        let assign = record_head.assign_logits(&instance_states, &candidate_states, &field_queries)?;
+        let records =
+            decode_group(record_mode, &fields, &object_logits, spans.as_deref(), &assign, threshold, cfg.record_temperature);
         let anchor_chars: Vec<Option<(usize, usize)>> =
-            records.iter().map(|r| pass.char_span(scores.spans[r.anchor])).collect();
+            records.iter().map(|r| r.anchor.and_then(|a| pass.char_span(scores.spans[a]))).collect();
 
         let mut instances = Vec::new();
         for (record_index, record) in records.iter().enumerate() {
@@ -538,6 +868,7 @@ impl BoundaryModel {
             let probability = candidate_probability.min(assignment_probability);
             if (rfield.cardinality.allows_absent() && candidate_probability < threshold)
                 || field.threshold.is_some_and(|t| probability < t)
+                || !field.validators.iter().all(|v| v.validate(&surface))
             {
                 continue;
             }
@@ -598,6 +929,7 @@ impl BoundaryModel {
                 let mentions: Vec<Mention> = resolve_overlaps(&scored, pass.policy)
                     .into_iter()
                     .filter_map(|s| pass.mention((s.start, s.end)).map(|(t, a, b)| (t, s.score, a, b)))
+                    .filter(|(surface, ..)| field.validators.iter().all(|v| v.validate(surface)))
                     .collect();
                 format_structure_field(&mentions, is_scalar, pass.opts)
             };
@@ -792,6 +1124,23 @@ fn format_mention((surface, score, start, end): &Mention, opts: &ExtractOptions)
     }
 }
 
+/// `_format_attributed_entity`: like `format_mention`, but always an object
+/// (`text` plus optional `confidence`/`start`/`end`) with attribute groups
+/// merged in, since a schema with attributes forces the object shape.
+fn format_attributed_entity((surface, score, start, end): &Mention, opts: &ExtractOptions, extra: &Map<String, Value>) -> Value {
+    let mut value = Map::new();
+    value.insert("text".to_string(), json!(surface));
+    if opts.include_confidence {
+        value.insert("confidence".to_string(), json!(score));
+    }
+    if opts.include_spans {
+        value.insert("start".to_string(), json!(start));
+        value.insert("end".to_string(), json!(end));
+    }
+    value.extend(extra.clone());
+    Value::Object(value)
+}
+
 fn format_structure_field(mentions: &[Mention], is_scalar: bool, opts: &ExtractOptions) -> Value {
     if is_scalar {
         mentions.first().map_or(Value::Null, |m| format_mention(m, opts))
@@ -952,11 +1301,37 @@ impl SpanModel {
         self.processor.word_splitter = splitter;
     }
 
+    pub fn word_splitter(&self) -> WordSplitter {
+        self.processor.word_splitter
+    }
+
     fn encode(&self, input: &PreparedInput) -> Result<Tensor> {
         let t = input.input_ids.len();
         let ids = Tensor::from_vec(input.input_ids.clone(), (1, t), &self.device)?;
         let mask = Tensor::ones((1, t), DType::U32, &self.device)?;
         Ok(self.encoder.forward(&ids, &mask)?.squeeze(0)?.to_dtype(DType::F32)?)
+    }
+
+    /// See [`BoundaryModel::encode_batch`].
+    fn encode_batch(&self, inputs: &[PreparedInput]) -> Result<Vec<Tensor>> {
+        let b = inputs.len();
+        let max_t = inputs.iter().map(|i| i.input_ids.len()).max().unwrap_or(0);
+        let mut ids = vec![0u32; b * max_t];
+        let mut mask = vec![0u32; b * max_t];
+        for (i, input) in inputs.iter().enumerate() {
+            for (j, &id) in input.input_ids.iter().enumerate() {
+                ids[i * max_t + j] = id;
+                mask[i * max_t + j] = 1;
+            }
+        }
+        let ids = Tensor::from_vec(ids, (b, max_t), &self.device)?;
+        let mask = Tensor::from_vec(mask, (b, max_t), &self.device)?;
+        let states = self.encoder.forward(&ids, &mask)?.to_dtype(DType::F32)?;
+        inputs
+            .iter()
+            .enumerate()
+            .map(|(i, input)| Ok(states.narrow(0, i, 1)?.squeeze(0)?.narrow(0, 0, input.input_ids.len())?.contiguous()?))
+            .collect()
     }
 
     fn gather_rows(&self, states: &Tensor, positions: &[usize]) -> Result<Tensor> {
@@ -970,15 +1345,35 @@ impl SpanModel {
     }
 
     pub fn extract(&self, text: &str, schema: &Schema, opts: &ExtractOptions) -> Result<Value> {
+        let input = self.processor.prepare(text, schema, opts.max_words)?;
+        let states = self.encode(&input)?;
+        self.extract_from_states(&input, &states, text, schema, opts)
+    }
+
+    /// [`BoundaryModel::extract_batch`], scoped the same way as
+    /// [`Self::extract`] (bails if `schema` has structures/relations).
+    pub fn extract_batch(&self, texts: &[&str], schema: &Schema, opts: &ExtractOptions) -> Result<Vec<Value>> {
         if !schema.structures.is_empty() || !schema.relations.is_empty() {
             bail!(
                 "structures/relations extraction is not implemented for the span architecture \
                  (this checkpoint only supports entities and classification)"
             );
         }
-        let input = self.processor.prepare(text, schema, opts.max_words)?;
-        let states = self.encode(&input)?;
+        let inputs: Vec<PreparedInput> =
+            texts.iter().map(|text| self.processor.prepare(text, schema, opts.max_words)).collect::<Result<_>>()?;
+        let states = self.encode_batch(&inputs)?;
+        (0..texts.len())
+            .map(|i| self.extract_from_states(&inputs[i], &states[i], texts[i], schema, opts))
+            .collect()
+    }
 
+    fn extract_from_states(&self, input: &PreparedInput, states: &Tensor, text: &str, schema: &Schema, opts: &ExtractOptions) -> Result<Value> {
+        if !schema.structures.is_empty() || !schema.relations.is_empty() {
+            bail!(
+                "structures/relations extraction is not implemented for the span architecture \
+                 (this checkpoint only supports entities and classification)"
+            );
+        }
         let mut out = Map::new();
         for group in &input.groups {
             if group.kind == TaskKind::Classifications {
@@ -986,13 +1381,13 @@ impl SpanModel {
                 if group.marker_positions.is_empty() {
                     continue;
                 }
-                let label_states = self.gather_rows(&states, &group.marker_positions)?;
+                let label_states = self.gather_rows(states, &group.marker_positions)?;
                 let logits = self.classifier.forward(&label_states)?;
                 out.insert(spec.task.clone(), classification_value(spec, &logits, opts.include_confidence));
             }
         }
         if let Some(group) = input.groups.iter().find(|g| g.kind == TaskKind::Entities) {
-            out.insert("entities".to_string(), Value::Object(self.decode_entities(&input, &states, text, schema, group, opts)?));
+            out.insert("entities".to_string(), Value::Object(self.decode_entities(input, states, text, schema, group, opts)?));
         }
         Ok(Value::Object(out))
     }
@@ -1065,7 +1460,9 @@ impl SpanModel {
             let mut items: Vec<Mention> = Vec::new();
             for span in resolved {
                 if let Some((surface, start, end)) = span_mention(input, text, (span.start, span.end)) {
-                    items.push((surface, span.score, start, end));
+                    if spec.validators.iter().all(|v| v.validate(&surface)) {
+                        items.push((surface, span.score, start, end));
+                    }
                 }
             }
             let value = match spec.dtype {
@@ -1085,13 +1482,39 @@ impl SpanModel {
         let schema = tasks.iter().cloned().fold(Schema::new(), Schema::classification);
         let input = self.processor.prepare(text, &schema, None)?;
         let states = self.encode(&input)?;
+        self.classification_probabilities_from_states(&input, &states, tasks)
+    }
+
+    /// [`BoundaryModel::classification_probabilities_batch`].
+    pub fn classification_probabilities_batch(
+        &self,
+        texts: &[&str],
+        tasks: &[ClassificationSpec],
+    ) -> Result<Vec<Vec<(String, Vec<(String, f32)>)>>> {
+        let schema = tasks.iter().cloned().fold(Schema::new(), Schema::classification);
+        let inputs: Vec<PreparedInput> =
+            texts.iter().map(|text| self.processor.prepare(text, &schema, None)).collect::<Result<_>>()?;
+        let states = self.encode_batch(&inputs)?;
+        inputs
+            .iter()
+            .zip(states.iter())
+            .map(|(input, states)| self.classification_probabilities_from_states(input, states, tasks))
+            .collect()
+    }
+
+    fn classification_probabilities_from_states(
+        &self,
+        input: &PreparedInput,
+        states: &Tensor,
+        tasks: &[ClassificationSpec],
+    ) -> Result<Vec<(String, Vec<(String, f32)>)>> {
         let mut out = Vec::new();
         for group in input.groups.iter().filter(|g| g.kind == TaskKind::Classifications) {
             let spec = &tasks[group.spec_index];
             if group.marker_positions.is_empty() {
                 continue;
             }
-            let label_states = self.gather_rows(&states, &group.marker_positions)?;
+            let label_states = self.gather_rows(states, &group.marker_positions)?;
             let logits = self.classifier.forward(&label_states)?;
             let probs = classification_probs(spec, &logits);
             out.push((spec.task.clone(), spec.labels.iter().cloned().zip(probs).collect()));

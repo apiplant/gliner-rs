@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use candle_core::{DType, Device};
-use gliner_rs::{ClassificationSpec, ExtractOptions, GLiNER2, Schema, StructureMode, StructureSpec, WordSplitter};
+use gliner_rs::{AttributeGroup, ClassificationSpec, ExtractOptions, GLiNER2, Schema, StructureMode, StructureSpec, WordSplitter};
 use serde_json::Value;
 
 fn long_text() -> String {
@@ -43,6 +43,23 @@ fn main() -> Result<()> {
         }
         if let Value::Array(names) = &case["relations"] {
             schema = schema.relations(names.iter().map(|v| v.as_str().unwrap()));
+        }
+        if let Value::Object(groups) = &case["entity_attributes"] {
+            let groups = groups.iter().map(|(name, g)| {
+                let mut group = AttributeGroup::new(g["labels"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()));
+                if let Some(threshold) = g["threshold"].as_f64() {
+                    group.threshold = threshold as f32;
+                }
+                group.multi_label = g["multi_label"].as_bool().unwrap_or(false);
+                if let Value::Array(names) = &g["applies_to"] {
+                    group = group.applies_to(names.iter().map(|v| v.as_str().unwrap()));
+                }
+                if g["qualify_labels"].as_bool().unwrap_or(false) {
+                    group = group.qualify_labels();
+                }
+                (name.clone(), group)
+            });
+            schema = schema.entity_attributes(groups);
         }
         if let Value::Array(tasks) = &case["classifications"] {
             for task in tasks {

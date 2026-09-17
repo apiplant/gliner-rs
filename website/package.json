@@ -1,0 +1,28 @@
+{
+  "name": "gliner-rs-website",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The gliner-rs marketing and documentation site.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solidjs/router": "2.0.0-next.16",
+    "@solidjs/web": "2.0.0-rc.0",
+    "prismjs": "^1.30.0",
+    "solid-js": "2.0.0-rc.0"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.28",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/prismjs": "^1.26.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "wrangler": "^4.118.0"
+  }
+}

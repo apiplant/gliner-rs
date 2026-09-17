@@ -34,36 +34,90 @@ pub struct RecordField {
     pub exclusive: bool,
 }
 
-/// Natural-mode record head weights.
+/// How a structure's instances are formed (`gliner2.processing.records`
+/// modes: `natural` / `latent` / `anchorless`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordMode {
+    Natural,
+    Latent,
+    Anchorless,
+}
+
+/// Unified natural/latent/anchorless record head weights
+/// (`gliner2.models.boundary.records.RecordHead`).
 pub struct RecordHead {
     inst_proj: Linear,
     field_proj: Linear,
     cand_proj: Linear,
     null_embed: Tensor,
+    object_head: Linear,
+    latent_seed_head: Linear,
+    instance_embed: Tensor,
+    q_proj: Linear,
+    k_proj: Linear,
+    v_proj: Linear,
+    record_dim: usize,
 }
 
-/// Per-field assignment logits `[F][I][1 + C]` (column 0 = ABSENT) for natural
-/// mode, where instances are the anchor candidates (`I == C`).
+/// Per-field assignment logits `[F][I][1 + C]` (column 0 = ABSENT), where `I`
+/// is the instance count (anchor/latent-seed candidates, or learned
+/// anchorless queries) and `C` the field-candidate count.
 pub type AssignLogits = Vec<Vec<Vec<f32>>>;
 
 impl RecordHead {
-    pub fn load(vb: VarBuilder, hidden: usize, record_dim: usize) -> Result<Self> {
+    pub fn load(vb: VarBuilder, hidden: usize, record_dim: usize, instance_queries: usize) -> Result<Self> {
         Ok(Self {
             inst_proj: linear(hidden, record_dim, vb.pp("inst_proj"))?,
             field_proj: linear(hidden, record_dim, vb.pp("field_proj"))?,
             cand_proj: linear(hidden, record_dim, vb.pp("cand_proj"))?,
             null_embed: vb.get(record_dim, "null_embed")?,
+            object_head: linear(hidden, 1, vb.pp("object_head"))?,
+            latent_seed_head: linear(hidden, 1, vb.pp("latent_seed_head"))?,
+            instance_embed: vb.get((instance_queries, hidden), "instance_embed")?,
+            q_proj: linear(hidden, record_dim, vb.pp("q_proj"))?,
+            k_proj: linear(hidden, record_dim, vb.pp("k_proj"))?,
+            v_proj: linear(hidden, hidden, vb.pp("v_proj"))?,
+            record_dim,
         })
     }
 
-    /// `candidate_states`: `[C, H]` (shared pool), `field_queries`: `[F, H]`.
-    pub fn assign_logits(&self, candidate_states: &Tensor, field_queries: &Tensor) -> Result<AssignLogits> {
-        let inst = self.inst_proj.forward(candidate_states)?; // [C, D]
+    /// `latent_seed_head` score per shared-pool candidate (`[C, H]` -> `[C]`):
+    /// how likely each candidate is to seed a `latent`-mode instance.
+    pub fn latent_seed_scores(&self, candidate_states: &Tensor) -> Result<Vec<f32>> {
+        self.latent_seed_head.forward(candidate_states)?.squeeze(1)?.to_vec1::<f32>()
+    }
+
+    /// `object_head` score per anchorless instance (`[I, H]` -> `[I]`).
+    pub fn object_scores(&self, instance_states: &Tensor) -> Result<Vec<f32>> {
+        self.object_head.forward(instance_states)?.squeeze(1)?.to_vec1::<f32>()
+    }
+
+    /// `_anchorless_states`: the learned instance queries, cross-attended
+    /// over the shared candidate pool (`[C, H]` -> `[I, H]`).
+    pub fn anchorless_instances(&self, candidate_states: &Tensor) -> Result<Tensor> {
+        let inst = self.instance_embed.clone();
+        if candidate_states.dim(0)? == 0 {
+            return Ok(inst);
+        }
+        let q = self.q_proj.forward(&inst)?; // [I, D]
+        let k = self.k_proj.forward(candidate_states)?; // [C, D]
+        let v = self.v_proj.forward(candidate_states)?; // [C, H]
+        let attn = (q.matmul(&k.t()?)? / (self.record_dim as f64).sqrt())?; // [I, C]
+        let weights = candle_nn::ops::softmax(&attn, 1)?;
+        inst + weights.matmul(&v)?
+    }
+
+    /// `_assign_logits`: `instance_states` (`[I, H]`) may be a different
+    /// tensor than `candidate_states` (`[C, H]`) in `anchorless` mode; they
+    /// are the same shared pool in `natural`/`latent` mode. `field_queries`:
+    /// `[F, H]`.
+    pub fn assign_logits(&self, instance_states: &Tensor, candidate_states: &Tensor, field_queries: &Tensor) -> Result<AssignLogits> {
+        let inst = self.inst_proj.forward(instance_states)?; // [I, D]
         let field = self.field_proj.forward(field_queries)?; // [F, D]
-        let query = inst.unsqueeze(0)?.broadcast_add(&field.unsqueeze(1)?)?; // [F, C, D]
-        let null = query.broadcast_matmul(&self.null_embed.unsqueeze(1)?)?; // [F, C, 1]
+        let query = inst.unsqueeze(0)?.broadcast_add(&field.unsqueeze(1)?)?; // [F, I, D]
+        let null = query.broadcast_matmul(&self.null_embed.unsqueeze(1)?)?; // [F, I, 1]
         let cand = self.cand_proj.forward(candidate_states)?; // [C, D]
-        let scores = query.broadcast_matmul(&cand.t()?)?; // [F, C, C]
+        let scores = query.broadcast_matmul(&cand.t()?)?; // [F, I, C]
         Tensor::cat(&[&null, &scores], 2)?.to_vec3::<f32>()
     }
 }
@@ -72,8 +126,9 @@ impl RecordHead {
 pub struct DecodedRecord {
     /// Field index -> selected `(candidate index, score)`.
     pub fields: HashMap<usize, Vec<(usize, f32)>>,
-    /// Anchor candidate index.
-    pub anchor: usize,
+    /// Seed candidate index (`natural`/`latent`); `None` for `anchorless`
+    /// instances, which aren't backed by a shared-pool span.
+    pub anchor: Option<usize>,
     pub score: f32,
 }
 
@@ -95,25 +150,30 @@ fn argsort_desc(xs: &[f32]) -> Vec<usize> {
     idx
 }
 
-/// `decode_group` for natural mode. `anchor_logits` are the anchor query's pair
-/// logits over the `C` pool candidates, `spans` their token spans.
-pub fn decode_natural(
+/// `decode_group`. `object_logits` are, per mode: the anchor field's pair
+/// logits over the shared pool (`Natural`), the head's `latent_seed_head`
+/// score per shared-pool candidate (`Latent`), or the `object_head` score per
+/// learned instance (`Anchorless`). `spans` are the shared-pool token spans
+/// (`Natural`/`Latent`, same indexing as `object_logits`); `Anchorless`
+/// instances aren't backed by a span, so pass `None`.
+pub fn decode_group(
+    mode: RecordMode,
     fields: &[RecordField],
-    anchor_logits: &[f32],
-    spans: &[(usize, usize)],
+    object_logits: &[f32],
+    spans: Option<&[(usize, usize)]>,
     assign: &AssignLogits,
     threshold: f32,
     temperature: f32,
 ) -> Vec<DecodedRecord> {
-    let ni = anchor_logits.len();
+    let ni = object_logits.len();
     if ni == 0 {
         return Vec::new();
     }
-    let obj_prob: Vec<f32> = anchor_logits.iter().map(|&x| sigmoid(x / temperature)).collect();
+    let obj_prob: Vec<f32> = object_logits.iter().map(|&x| sigmoid(x / temperature)).collect();
     let mut order: Vec<usize> = (0..ni).collect();
     order.sort_by(|&a, &b| obj_prob[b].total_cmp(&obj_prob[a]).then(a.cmp(&b)));
     let selected: Vec<usize> = order.into_iter().filter(|&i| obj_prob[i] >= threshold).collect();
-    let anchor_field = fields.iter().position(|f| f.is_anchor);
+    let anchor_field = (mode == RecordMode::Natural).then(|| fields.iter().position(|f| f.is_anchor)).flatten();
 
     // Exclusive fields: joint scalar assignment and per-candidate list ownership.
     let mut scalar_choices: HashMap<(usize, usize), Option<(usize, f32)>> = HashMap::new();
@@ -188,7 +248,8 @@ pub fn decode_natural(
 
     let mut records = Vec::new();
     for &inst in &selected {
-        let mut rec = DecodedRecord { fields: HashMap::new(), anchor: inst, score: obj_prob[inst] };
+        let anchor = (mode != RecordMode::Anchorless).then_some(inst);
+        let mut rec = DecodedRecord { fields: HashMap::new(), anchor, score: obj_prob[inst] };
         for (f_idx, field) in fields.iter().enumerate() {
             if Some(f_idx) == anchor_field {
                 rec.fields.entry(f_idx).or_default().push((inst, rec.score));
@@ -246,8 +307,40 @@ pub fn decode_natural(
             records.push(rec);
         }
     }
-    records.sort_by_key(|r| spans[r.anchor]);
+    match mode {
+        RecordMode::Natural => records.sort_by_key(|r| spans.expect("natural mode has spans")[r.anchor.unwrap()]),
+        RecordMode::Latent | RecordMode::Anchorless => records = dedup_by_fields(records),
+    }
     records
+}
+
+/// `_dedup_key` + the `dict`-preserving-first-position update used for
+/// `latent`/`anchorless`: identical field assignments collapse into the
+/// highest-scoring occurrence, kept at its first position.
+fn dedup_by_fields(records: Vec<DecodedRecord>) -> Vec<DecodedRecord> {
+    fn key(rec: &DecodedRecord) -> Vec<(usize, Vec<usize>)> {
+        let mut fields: Vec<(usize, Vec<usize>)> = rec
+            .fields
+            .iter()
+            .map(|(&f, v)| {
+                let mut idxs: Vec<usize> = v.iter().map(|&(c, _)| c).collect();
+                idxs.sort_unstable();
+                (f, idxs)
+            })
+            .collect();
+        fields.sort_by_key(|(f, _)| *f);
+        fields
+    }
+    let mut out: Vec<(Vec<(usize, Vec<usize>)>, DecodedRecord)> = Vec::new();
+    for rec in records {
+        let k = key(&rec);
+        match out.iter_mut().find(|(existing, _)| *existing == k) {
+            Some((_, existing)) if existing.score >= rec.score => {}
+            Some((_, existing)) => *existing = rec,
+            None => out.push((k, rec)),
+        }
+    }
+    out.into_iter().map(|(_, rec)| rec).collect()
 }
 
 /// Minimum-cost rectangular assignment (rows <= columns), returning the column
