@@ -9,28 +9,16 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use candle_core::{DType, Device};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use gliner_rs::model_path::{self, VariantDef};
 use gliner_rs::GLiNER2;
 
 use session::{parse_example, Activation, Format, Session, TaskDef};
 
 const VARIANTS: &[VariantDef] = &[
-    VariantDef {
-        key: "multi",
-        default_relative: "models/gliner2.5-multi-v1",
-        hf_repo: "fastino/gliner2.5-multi-v1",
-    },
-    VariantDef {
-        key: "small",
-        default_relative: "models/gliner2.5-small-v1",
-        hf_repo: "fastino/gliner2.5-small-v1",
-    },
-    VariantDef {
-        key: "base",
-        default_relative: "models/gliner2.5-base-v1",
-        hf_repo: "fastino/gliner2.5-base-v1",
-    },
+    VariantDef { key: "multi", hf_repo: "fastino/gliner2.5-multi-v1" },
+    VariantDef { key: "small", hf_repo: "fastino/gliner2.5-small-v1" },
+    VariantDef { key: "base", hf_repo: "fastino/gliner2.5-base-v1" },
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -64,8 +52,7 @@ impl Variant {
   gliner-classify -t sentiment=positive,negative -t +topics=tech,sports \"...\"
   gliner-classify -l \"spam:Unsolicited ads,ham:Normal mail\" -f emails.txt --format tsv
   cat reviews.txt | gliner-classify -l positive,negative --all --format jsonl
-  gliner-classify -i -l positive,negative        # interactive shell
-  gliner-classify setup /mnt/ai/gliner     # save model paths in one go")]
+  gliner-classify -i -l positive,negative        # interactive shell")]
 struct Args {
     /// Texts to classify.
     texts: Vec<String>,
@@ -122,13 +109,12 @@ struct Args {
     #[arg(short, long)]
     interactive: bool,
 
-    /// Checkpoint directory. Defaults to `./models/gliner2.5-<variant>-v1`,
-    /// then a path saved from a previous interactive prompt.
+    /// Checkpoint directory. Defaults to the variant's checkpoint in the
+    /// gliner-rs cache directory, downloading it there first if needed.
     #[arg(long, env = "GLINER_MODEL")]
     model: Option<PathBuf>,
 
-    /// Which GLiNER2.5 checkpoint to use when `--model` isn't given.
-    /// Defaults to `multi`, or whatever was last used.
+    /// Which GLiNER2.5 checkpoint to use when `--model` isn't given. Defaults to `multi`.
     #[arg(long, value_enum)]
     model_variant: Option<Variant>,
 
@@ -143,20 +129,6 @@ struct Args {
     /// Print timing information to stderr.
     #[arg(short, long)]
     verbose: bool,
-
-    /// Subcommand.
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Subcommand, Debug)]
-enum Command {
-    /// Save model paths in one go from a base models directory containing
-    /// checkpoint subdirectories (e.g. /mnt/ai/gliner).
-    Setup {
-        /// Base models directory containing the checkpoint subdirectories.
-        base: PathBuf,
-    },
 }
 
 fn session_from(args: &Args) -> Result<Session> {
@@ -181,9 +153,6 @@ fn session_from(args: &Args) -> Result<Session> {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    if let Some(Command::Setup { base }) = args.command {
-        return model_path::setup("gliner-classify", VARIANTS, &base);
-    }
     let session = session_from(&args)?;
 
     let mut texts = args.texts.clone();
@@ -208,8 +177,7 @@ fn main() -> Result<()> {
 
     let device = if args.cuda { Device::new_cuda(0)? } else { Device::Cpu };
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };
-    let model_path =
-        model_path::resolve("gliner-classify", VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;
+    let model_path = model_path::resolve(VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;
     let started = Instant::now();
     if interactive {
         eprintln!("loading model from {} ...", model_path.display());

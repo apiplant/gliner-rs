@@ -5,22 +5,14 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use candle_core::{DType, Device};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use gliner_rs::model_path::{self, VariantDef};
 use gliner_rs::{ExtractOptions, GLiNER2};
 use serde_json::{json, Value};
 
 const VARIANTS: &[VariantDef] = &[
-    VariantDef {
-        key: "privacy",
-        default_relative: "models/gliner2-privacy-filter-PII-multi",
-        hf_repo: "fastino/gliner2-privacy-filter-PII-multi",
-    },
-    VariantDef {
-        key: "guardrails",
-        default_relative: "models/GLiNER2-Guardrails-PII-Multi",
-        hf_repo: "fastino/GLiNER2-Guardrails-PII-Multi",
-    },
+    VariantDef { key: "privacy", hf_repo: "fastino/gliner2-privacy-filter-PII-multi" },
+    VariantDef { key: "guardrails", hf_repo: "fastino/GLiNER2-Guardrails-PII-Multi" },
 ];
 
 /// The privacy-filter checkpoint's full 42-label PII taxonomy.
@@ -94,8 +86,7 @@ impl Variant {
   gliner-pii --redact -f transcripts.txt
   gliner-pii -l email,phone_number,person \"...\"
   echo \"my api key is sk-abc123\" | gliner-pii --labels api_key,secret
-  gliner-pii --pretty -f transcripts.txt
-  gliner-pii setup /mnt/ai/gliner          # save model paths in one go")]
+  gliner-pii --pretty -f transcripts.txt")]
 struct Args {
     /// Texts to scan.
     texts: Vec<String>,
@@ -120,13 +111,12 @@ struct Args {
     #[arg(short, long)]
     pretty: bool,
 
-    /// Checkpoint directory. Defaults to `./models/<variant's checkpoint>`,
-    /// then a path saved from a previous interactive prompt.
+    /// Checkpoint directory. Defaults to the variant's checkpoint in the
+    /// gliner-rs cache directory, downloading it there first if needed.
     #[arg(long, env = "GLINER_MODEL")]
     model: Option<PathBuf>,
 
-    /// Which checkpoint to use when `--model` isn't given. Defaults to
-    /// `privacy`, or whatever was last used.
+    /// Which checkpoint to use when `--model` isn't given. Defaults to `privacy`.
     #[arg(long, value_enum)]
     model_variant: Option<Variant>,
 
@@ -137,20 +127,6 @@ struct Args {
     /// Run the encoder in float16.
     #[arg(long)]
     fp16: bool,
-
-    /// Subcommand.
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Subcommand, Debug)]
-enum Command {
-    /// Save model paths in one go from a base models directory containing
-    /// checkpoint subdirectories (e.g. /mnt/ai/gliner).
-    Setup {
-        /// Base models directory containing the checkpoint subdirectories.
-        base: PathBuf,
-    },
 }
 
 fn redact(text: &str, entities: &serde_json::Value) -> String {
@@ -187,9 +163,6 @@ fn redact(text: &str, entities: &serde_json::Value) -> String {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    if let Some(Command::Setup { base }) = args.command {
-        return model_path::setup("gliner-pii", VARIANTS, &base);
-    }
 
     let mut texts = args.texts.clone();
     if let Some(path) = &args.file {
@@ -214,8 +187,7 @@ fn main() -> Result<()> {
     };
     let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 
-    let model_path =
-        model_path::resolve("gliner-pii", VARIANTS, "privacy", args.model.clone(), args.model_variant.map(Variant::key))?;
+    let model_path = model_path::resolve(VARIANTS, "privacy", args.model.clone(), args.model_variant.map(Variant::key))?;
 
     let device = if args.cuda { Device::new_cuda(0)? } else { Device::Cpu };
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };

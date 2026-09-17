@@ -18,6 +18,7 @@
 pub mod config;
 pub mod deberta;
 pub mod decode;
+pub mod download;
 pub mod heads;
 pub mod model;
 pub mod model_path;

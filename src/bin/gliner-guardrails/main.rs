@@ -6,22 +6,14 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use candle_core::{DType, Device};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use gliner_rs::model_path::{self, VariantDef};
 use gliner_rs::{ClassificationSpec, ExtractOptions, GLiNER2};
 use serde_json::json;
 
 const VARIANTS: &[VariantDef] = &[
-    VariantDef {
-        key: "gliguard",
-        default_relative: "models/gliguard-LLMGuardrails-300M",
-        hf_repo: "fastino/gliguard-LLMGuardrails-300M",
-    },
-    VariantDef {
-        key: "guardrails-pii",
-        default_relative: "models/GLiNER2-Guardrails-PII-Multi",
-        hf_repo: "fastino/GLiNER2-Guardrails-PII-Multi",
-    },
+    VariantDef { key: "gliguard", hf_repo: "fastino/gliguard-LLMGuardrails-300M" },
+    VariantDef { key: "guardrails-pii", hf_repo: "fastino/GLiNER2-Guardrails-PII-Multi" },
 ];
 
 const TOXICITY_LABELS: &[&str] = &[
@@ -71,8 +63,7 @@ enum Check {
   gliner-guardrails --check response \"Sure, here's how to pick a lock...\"
   gliner-guardrails --check both -f prompts_and_replies.txt
   gliner-guardrails --no-toxicity --no-jailbreak \"just check safety\"
-  gliner-guardrails --pretty \"check this prompt\"
-  gliner-guardrails setup /mnt/ai/gliner   # save model paths in one go")]
+  gliner-guardrails --pretty \"check this prompt\"")]
 struct Args {
     /// Texts to moderate.
     texts: Vec<String>,
@@ -102,13 +93,12 @@ struct Args {
     #[arg(short, long)]
     pretty: bool,
 
-    /// Checkpoint directory. Defaults to `./models/<variant's checkpoint>`,
-    /// then a path saved from a previous interactive prompt.
+    /// Checkpoint directory. Defaults to the variant's checkpoint in the
+    /// gliner-rs cache directory, downloading it there first if needed.
     #[arg(long, env = "GLINER_MODEL")]
     model: Option<PathBuf>,
 
-    /// Which checkpoint to use when `--model` isn't given. Defaults to
-    /// `gliguard`, or whatever was last used.
+    /// Which checkpoint to use when `--model` isn't given. Defaults to `gliguard`.
     #[arg(long, value_enum)]
     model_variant: Option<Variant>,
 
@@ -119,20 +109,6 @@ struct Args {
     /// Run the encoder in float16.
     #[arg(long)]
     fp16: bool,
-
-    /// Subcommand.
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Subcommand, Debug)]
-enum Command {
-    /// Save model paths in one go from a base models directory containing
-    /// checkpoint subdirectories (e.g. /mnt/ai/gliner).
-    Setup {
-        /// Base models directory containing the checkpoint subdirectories.
-        base: PathBuf,
-    },
 }
 
 fn tasks_for(check: Check, no_toxicity: bool, no_jailbreak: bool, threshold: f32) -> Vec<ClassificationSpec> {
@@ -157,9 +133,6 @@ fn tasks_for(check: Check, no_toxicity: bool, no_jailbreak: bool, threshold: f32
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    if let Some(Command::Setup { base }) = args.command {
-        return model_path::setup("gliner-guardrails", VARIANTS, &base);
-    }
 
     let mut texts = args.texts.clone();
     if let Some(path) = &args.file {
@@ -178,13 +151,7 @@ fn main() -> Result<()> {
         anyhow::bail!("no input: pass text arguments, --file, or pipe lines on stdin");
     }
 
-    let model_path = model_path::resolve(
-        "gliner-guardrails",
-        VARIANTS,
-        "gliguard",
-        args.model.clone(),
-        args.model_variant.map(Variant::key),
-    )?;
+    let model_path = model_path::resolve(VARIANTS, "gliguard", args.model.clone(), args.model_variant.map(Variant::key))?;
 
     let device = if args.cuda { Device::new_cuda(0)? } else { Device::Cpu };
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };

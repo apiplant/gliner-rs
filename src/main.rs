@@ -4,20 +4,32 @@ use std::time::Instant;
 use anyhow::{bail, Result};
 use candle_core::{DType, Device};
 use clap::Parser;
+use gliner_rs::model_path::{self, VariantDef};
 use gliner_rs::{ClassificationSpec, ExtractOptions, GLiNER2, OverlapPolicy, Schema, StructureMode, StructureSpec, WordSplitter};
+
+const VARIANTS: &[VariantDef] = &[
+    VariantDef { key: "multi", hf_repo: "fastino/gliner2.5-multi-v1" },
+    VariantDef { key: "small", hf_repo: "fastino/gliner2.5-small-v1" },
+    VariantDef { key: "base", hf_repo: "fastino/gliner2.5-base-v1" },
+];
 
 /// Run GLiNER2 (boundary architecture) extraction on a text.
 ///
 /// Example:
-///   gliner-rs --model ../ --text "Alice works for Acme in Paris." \
+///   gliner --text "Alice works for Acme in Paris." \
 ///     --entities person,company,location --relations works_for,located_in \
 ///     --classify "sentiment=positive,negative,neutral" --spans --confidence
 #[derive(Parser, Debug)]
-#[command(version)]
+#[command(name = "gliner", version)]
 struct Args {
-    /// Checkpoint directory (config.json, encoder_config/, tokenizer.json, model.safetensors).
-    #[arg(long, default_value = "..")]
-    model: PathBuf,
+    /// Checkpoint directory. Defaults to the `--model-variant` checkpoint in
+    /// the gliner-rs cache directory, downloading it there first if needed.
+    #[arg(long, env = "GLINER_MODEL")]
+    model: Option<PathBuf>,
+
+    /// Which GLiNER2.5 checkpoint to use when `--model` isn't given. Defaults to `multi`.
+    #[arg(long, value_enum)]
+    model_variant: Option<Variant>,
 
     /// Input text (reads stdin when omitted).
     #[arg(long)]
@@ -72,10 +84,28 @@ struct Args {
     fp16: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Variant {
+    Multi,
+    Small,
+    Base,
+}
+
+impl Variant {
+    fn key(self) -> &'static str {
+        match self {
+            Variant::Multi => "multi",
+            Variant::Small => "small",
+            Variant::Base => "base",
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let device = if args.cuda { Device::new_cuda(0)? } else { Device::Cpu };
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };
+    let model_path = model_path::resolve(VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;
 
     let text = match args.text {
         Some(t) => t,
@@ -118,7 +148,7 @@ fn main() -> Result<()> {
     }
 
     let started = Instant::now();
-    let mut model = GLiNER2::load(&args.model, &device, dtype)?;
+    let mut model = GLiNER2::load(&model_path, &device, dtype)?;
     if args.char_split {
         model.set_word_splitter(WordSplitter::Char);
     }

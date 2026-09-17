@@ -24,13 +24,65 @@ Not supported yet: explicit record options beyond what `extract_json` sets (late
 anchorless modes, custom anchors, cardinality, or non-exclusive fields), entity attributes,
 regex validators, `*_long` chunking, and batching (the API takes one text per call).
 
+## Installation
+
+macOS (Apple Silicon) and Linux, via Homebrew:
+
+```sh
+brew tap apiplant/tap
+brew install apiplant/tap/gliner-rs
+```
+
+Arch Linux, via the signed pacman repository at `apiplant.github.io/pacman`
+(one-time setup, then `pacman -Sy`/`-Syu` picks up new releases):
+
+```sh
+curl -sSfL https://apiplant.github.io/pacman/apiplant.gpg -o /tmp/apiplant.gpg
+keyid=$(gpg --show-keys --with-colons /tmp/apiplant.gpg | awk -F: '/^pub:/ { print $5; exit }') && sudo pacman-key --add /tmp/apiplant.gpg && sudo pacman-key --finger "$keyid" && sudo pacman-key --lsign-key "$keyid"
+printf '\n[apiplant]\nSigLevel = Required DatabaseOptional\nServer = https://apiplant.github.io/pacman/$arch\n' | sudo tee -a /etc/pacman.conf > /dev/null
+sudo pacman -Sy gliner-rs
+```
+
+Debian/Ubuntu, via the signed apt repository at `apt.apiplant.com` (one-time
+setup, then `apt upgrade` picks up new releases):
+
+```sh
+curl -sSfL https://apt.apiplant.com/apiplant-archive-keyring.gpg | sudo tee /usr/share/keyrings/apiplant.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/apiplant.gpg] https://apt.apiplant.com stable main" | sudo tee /etc/apt/sources.list.d/apiplant.list > /dev/null
+sudo apt update && sudo apt install gliner-rs
+```
+
+Or download the archive, `.deb`, or `.pkg.tar.zst` for your platform from the
+[releases page](https://github.com/apiplant/gliner-rs/releases) and install
+it directly — the plain archive needs no installation at all, all four
+binaries are static enough to run from anywhere.
+
+As a Rust library, or to build the CLIs from source, via crates.io:
+
+```sh
+cargo add gliner-rs         # as a library dependency
+cargo install gliner-rs     # for the gliner/gliner-classify/gliner-pii/gliner-guardrails binaries
+```
+
+| Platform | Ships as |
+| --- | --- |
+| macOS (Apple Silicon) | archive, Homebrew |
+| Linux x86_64 | archive, `.deb` + apt repo, Arch package + pacman repo, Homebrew |
+| Linux aarch64 | archive, `.deb` + apt repo, Homebrew |
+
+No macOS Intel build: only Apple Silicon (`aarch64-apple-darwin`) and Linux
+(`x86_64`/`aarch64`) are supported.
+
+See [`packaging/README.md`](packaging/README.md) for how these packages are
+built and published.
+
 ## Usage
 
 ```sh
 cargo build --release                  # CPU
 cargo build --release --features cuda  # CUDA
 
-./target/release/gliner-rs --model /path/to/gliner2.5-multi-v1 \
+./target/release/gliner \
   --text "Alice works for Acme in Paris." \
   --entities person,company,location \
   --relations works_for,located_in \
@@ -38,12 +90,18 @@ cargo build --release --features cuda  # CUDA
   --spans --confidence
 ```
 
+If needed it downloads `fastino/gliner2.5-multi-v1` into the cache directory on
+first run (see [CLI checkpoint resolution](#cli-checkpoint-resolution)).
+
 - `--json "order=order_id::str,status::[shipped|pending],items::list"` extracts structures
   (repeatable). Use `;` between fields if a description contains commas, and add
   `--legacy-structures` for the aggregate decoder.
 - `--entities "dosage:Amounts such as 400mg"` adds a label description.
 - `--classify "+aspects=a,b,c"` makes the task multi-label.
 - `--char-split` switches to the character-level splitter for Chinese and Japanese.
+- `--model-variant {multi,small,base}` picks a different GLiNER2.5 checkpoint (see
+  [`gliner-classify`](#gliner-classify-zero-shot-classification-from-the-terminal) below for
+  what each one is).
 
 ### Library
 
@@ -71,36 +129,25 @@ The output JSON follows gliner2's formatted results. `start` and `end` are chara
 
 ## CLI checkpoint resolution
 
-`gliner-classify`, `gliner-pii` and `gliner-guardrails` all resolve their model directory the
-same way when you don't pass `--model`/`GLINER_MODEL` explicitly:
+`gliner`, `gliner-classify`, `gliner-pii` and `gliner-guardrails` all resolve their model
+directory the same way when you don't pass `--model`/`GLINER_MODEL` explicitly: each variant's checkpoint
+lives in the gliner-rs cache directory, `$XDG_CACHE_HOME/gliner-rs` (default
+`~/.cache/gliner-rs`), under a subdirectory named after its Hugging Face repo (e.g.
+`gliner2.5-multi-v1`). If it isn't there yet, it's downloaded automatically on first use.
+Set `GLINER_OFFLINE=1` to disable downloading (useful on a constrained connection); resolution
+then fails with an error naming the missing file unless the checkpoint is already fully cached.
 
-1. `./models/<checkpoint dir>` relative to the current directory (see the tables below for
-   each binary's checkpoint directory names).
-2. A path saved from a previous run, in `$XDG_CONFIG_HOME/<binary>/config.json` (default
-   `~/.config/<binary>/config.json`).
-3. If neither exists and you're at a terminal, the binary explains that the `models`
-   directory is empty and asks you to select a path to a GLiNER checkpoint; the answer is
-   saved for next time. Non-interactively (e.g. in a script or pipeline), this is an error
-   telling you to pass `--model`, set the env var, or run `setup`.
+Each binary supports more than one checkpoint (`--model-variant`, see the tables below).
 
-Each binary supports more than one checkpoint (`--model-variant`); whichever variant you pick
-explicitly becomes the new saved default, so day-to-day you only need to name it once.
+If you already have checkpoints downloaded elsewhere (e.g. via `git lfs` or the `huggingface-cli`),
+symlink the whole collection into the cache directory instead of re-downloading:
 
-### `setup <base_models_path>`
-
-To configure everything in one go, run `setup` with your base models directory — the
-directory that contains your checkpoint subdirectories (e.g. `/mnt/ai/gliner`):
-
-```console
-$ gliner-classify setup /mnt/ai/gliner
-multi: /mnt/ai/gliner/gliner2.5-multi-v1
-small: /mnt/ai/gliner/gliner2.5-small-v1
-2 model path(s) saved to /home/you/.config/gliner-classify/config.json
+```sh
+ln -s /path/to/your/gliner/checkpoints ~/.cache/gliner-rs
 ```
 
-Every known checkpoint found in the base directory is saved to the config, so several
-models can live there and be switched between with `--model-variant`. If nothing known is
-found, the error lists the directory names it looked for and what's actually there.
+where `/path/to/your/gliner/checkpoints` contains subdirectories named after the Hugging Face
+repos (`gliner2.5-multi-v1`, `gliner2-privacy-filter-PII-multi`, ...).
 
 ## `gliner-classify`: zero-shot classification from the terminal
 
@@ -110,13 +157,13 @@ with the rest of the crate:
 
 ```sh
 cargo build --release                      # add --features cuda for GPU
-mkdir -p models && ln -s /path/to/gliner2.5-multi-v1 models/gliner2.5-multi-v1
 alias gc=target/release/gliner-classify
 ```
 
 `--model-variant {multi,small,base}` picks between `fastino/gliner2.5-multi-v1` (default,
 205M, all languages), `fastino/gliner2.5-small-v1` and `fastino/gliner2.5-base-v1` (smaller,
-faster, English-leaning). Each looks for its own `models/gliner2.5-<variant>-v1` directory.
+faster, English-leaning). Each is downloaded automatically into the cache directory on
+first use (see [CLI checkpoint resolution](#cli-checkpoint-resolution)).
 
 Every output below is a real run of `fastino/gliner2.5-multi-v1` on CPU.
 
@@ -311,8 +358,6 @@ label list to write. Texts come from positional arguments, `-f file` (one per li
 piped stdin.
 
 ```sh
-mkdir -p models
-ln -s /path/to/gliner2-privacy-filter-PII-multi models/gliner2-privacy-filter-PII-multi
 alias gp=target/release/gliner-pii
 ```
 
@@ -364,8 +409,6 @@ safe/unsafe, plus multi-label toxicity categories and jailbreak-strategy detecti
 prompt side, or refusal-vs-compliance on the response side.
 
 ```sh
-mkdir -p models
-ln -s /path/to/gliguard-LLMGuardrails-300M models/gliguard-LLMGuardrails-300M
 alias gg=target/release/gliner-guardrails
 ```
 

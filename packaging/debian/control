@@ -1,0 +1,13 @@
+Package: gliner-rs
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Maintainer: apiplant <releases@apiplant.com>
+Installed-Size: @INSTALLED_SIZE@
+Homepage: https://github.com/apiplant/gliner-rs
+Description: Rust (candle) inference for GLiNER2 checkpoints
+ gliner, gliner-classify, gliner-pii and gliner-guardrails run GLiNER2
+ boundary-architecture checkpoints (entity extraction, zero-shot
+ classification, PII detection/redaction and LLM guardrails) locally via
+ candle, downloading checkpoints from Hugging Face on first use.

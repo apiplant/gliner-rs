@@ -4,9 +4,17 @@ version = "0.1.0"
 edition = "2021"
 description = "Rust (candle) inference for GLiNER2 boundary-architecture checkpoints (e.g. fastino/gliner2.5-multi-v1)"
 license = "Apache-2.0"
+repository = "https://github.com/apiplant/gliner-rs"
+readme = "README.md"
+keywords = ["gliner", "ner", "nlp", "candle", "inference"]
+categories = ["science", "text-processing", "command-line-utilities"]
 
 [lib]
 name = "gliner_rs"
+
+[[bin]]
+name = "gliner"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
@@ -18,6 +26,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 rustyline = { version = "18", features = ["with-file-history", "derive"] }
+ureq = "2"
 
 [features]
 default = []
