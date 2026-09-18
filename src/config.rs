@@ -150,7 +150,13 @@ pub enum Architecture {
 pub fn sniff_architecture(model_dir: &Path) -> Result<Architecture> {
     let raw = std::fs::read_to_string(model_dir.join("config.json"))
         .with_context(|| format!("reading {}", model_dir.join("config.json").display()))?;
-    let value: serde_json::Value = serde_json::from_str(&raw).context("parsing config.json")?;
+    sniff_architecture_str(&raw)
+}
+
+/// Same as [`sniff_architecture`] but from an already-read `config.json` string
+/// (used when a checkpoint is loaded from in-memory bytes, e.g. in wasm).
+pub fn sniff_architecture_str(raw: &str) -> Result<Architecture> {
+    let value: serde_json::Value = serde_json::from_str(raw).context("parsing config.json")?;
     if value.get("boundary_head").is_some() {
         Ok(Architecture::Boundary)
     } else if value.get("counting_layer").is_some() {
@@ -164,10 +170,14 @@ pub fn load_span_configs(model_dir: &Path) -> Result<(SpanConfig, EncoderConfig)
     let read = |p: &Path| -> Result<String> {
         std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))
     };
-    let cfg: SpanConfig = serde_json::from_str(&read(&model_dir.join("config.json"))?).context("parsing config.json")?;
-    let enc: EncoderConfig =
-        serde_json::from_str(&read(&model_dir.join("encoder_config").join("config.json"))?)
-            .context("parsing encoder_config/config.json")?;
+    load_span_configs_str(&read(&model_dir.join("config.json"))?, &read(&model_dir.join("encoder_config").join("config.json"))?)
+}
+
+/// Same as [`load_span_configs`] but from already-read `config.json` /
+/// `encoder_config/config.json` strings.
+pub fn load_span_configs_str(config_json: &str, encoder_config_json: &str) -> Result<(SpanConfig, EncoderConfig)> {
+    let cfg: SpanConfig = serde_json::from_str(config_json).context("parsing config.json")?;
+    let enc: EncoderConfig = serde_json::from_str(encoder_config_json).context("parsing encoder_config/config.json")?;
     if cfg.token_pooling != "first" {
         bail!("only token_pooling='first' is supported, got {:?}", cfg.token_pooling);
     }
@@ -181,11 +191,14 @@ pub fn load_configs(model_dir: &Path) -> Result<(ExtractorConfig, EncoderConfig)
     let read = |p: &Path| -> Result<String> {
         std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))
     };
-    let cfg: ExtractorConfig = serde_json::from_str(&read(&model_dir.join("config.json"))?)
-        .context("parsing config.json")?;
-    let enc: EncoderConfig =
-        serde_json::from_str(&read(&model_dir.join("encoder_config").join("config.json"))?)
-            .context("parsing encoder_config/config.json")?;
+    load_configs_str(&read(&model_dir.join("config.json"))?, &read(&model_dir.join("encoder_config").join("config.json"))?)
+}
+
+/// Same as [`load_configs`] but from already-read `config.json` /
+/// `encoder_config/config.json` strings.
+pub fn load_configs_str(config_json: &str, encoder_config_json: &str) -> Result<(ExtractorConfig, EncoderConfig)> {
+    let cfg: ExtractorConfig = serde_json::from_str(config_json).context("parsing config.json")?;
+    let enc: EncoderConfig = serde_json::from_str(encoder_config_json).context("parsing encoder_config/config.json")?;
     validate(&cfg, &enc)?;
     Ok((cfg, enc))
 }

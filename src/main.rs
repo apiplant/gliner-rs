@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use candle_core::{DType, Device};
 use clap::Parser;
+use gliner_rs::cli_schema::{build_schema, CliSchemaArgs};
 use gliner_rs::model_path::{self, VariantDef};
-use gliner_rs::{ClassificationSpec, ExtractOptions, GLiNER2, OverlapPolicy, Schema, StructureMode, StructureSpec, WordSplitter};
+use gliner_rs::{ExtractOptions, GLiNER2, OverlapPolicy, WordSplitter};
 
 const VARIANTS: &[VariantDef] = &[
     VariantDef { key: "multi", hf_repo: "fastino/gliner2.5-multi-v1" },
@@ -112,40 +113,13 @@ fn main() -> Result<()> {
         None => std::io::read_to_string(std::io::stdin())?,
     };
 
-    let mut schema = Schema::new();
-    for structure in &args.json {
-        let Some((name, fields)) = structure.split_once('=') else {
-            bail!("--json expects name=field1,field2, got {structure:?}");
-        };
-        let separator = if fields.contains(';') { ';' } else { ',' };
-        let mut spec = StructureSpec::parse(name.trim(), fields.split(separator).map(str::trim));
-        if args.legacy_structures {
-            spec.mode = StructureMode::Legacy;
-        }
-        schema = schema.structure(spec);
-    }
-    for entity in &args.entities {
-        schema = match entity.split_once(':') {
-            Some((name, desc)) => schema.entity_with_description(name.trim(), desc.trim()),
-            None => schema.entities([entity.trim()]),
-        };
-    }
-    schema = schema.relations(args.relations.iter().map(|r| r.trim()));
-    for task in &args.classify {
-        let Some((name, labels)) = task.split_once('=') else {
-            bail!("--classify expects task=label1,label2, got {task:?}");
-        };
-        let (name, multi) = match name.strip_prefix('+') {
-            Some(n) => (n, true),
-            None => (name, false),
-        };
-        let mut spec = ClassificationSpec::new(name.trim(), labels.split(',').map(str::trim));
-        spec.multi_label = multi;
-        schema = schema.classification(spec);
-    }
-    if schema.structures.is_empty() && schema.entities.is_empty() && schema.relations.is_empty() && schema.classifications.is_empty() {
-        bail!("nothing to do: pass --json, --entities, --relations and/or --classify");
-    }
+    let schema = build_schema(&CliSchemaArgs {
+        entities: args.entities.clone(),
+        relations: args.relations.clone(),
+        json: args.json.clone(),
+        legacy_structures: args.legacy_structures,
+        classify: args.classify.clone(),
+    })?;
 
     let started = Instant::now();
     let mut model = GLiNER2::load(&model_path, &device, dtype)?;

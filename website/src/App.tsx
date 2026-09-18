@@ -9,6 +9,10 @@ import { DocsCli } from "./components/docs/Cli";
 import { DocsClassify } from "./components/docs/Classify";
 import { DocsPii } from "./components/docs/Pii";
 import { DocsGuardrails } from "./components/docs/Guardrails";
+import { PiiDemo } from "./components/demo/PiiDemo";
+import { GuardrailsDemo } from "./components/demo/GuardrailsDemo";
+import { ClassifyDemo } from "./components/demo/ClassifyDemo";
+import { GenericDemo } from "./components/demo/GenericDemo";
 import { LinkButton } from "./components/ui";
 
 function Shell(props: ParentProps) {
@@ -47,6 +51,11 @@ const Router = createRouter({
     { path: "/docs/classify", component: DocsClassify },
     { path: "/docs/pii", component: DocsPii },
     { path: "/docs/guardrails", component: DocsGuardrails },
+    { path: "/demo", component: PiiDemo },
+    { path: "/demo/pii", component: PiiDemo },
+    { path: "/demo/guardrails", component: GuardrailsDemo },
+    { path: "/demo/classify", component: ClassifyDemo },
+    { path: "/demo/schema", component: GenericDemo },
     { path: "*404", component: NotFound },
   ],
 });

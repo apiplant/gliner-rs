@@ -10,7 +10,10 @@ use serde_json::{json, Map, Value};
 use tokenizers::Tokenizer;
 
 use crate::chunking::ChunkOptions;
-use crate::config::{load_configs, load_span_configs, sniff_architecture, Architecture, EncoderConfig, ExtractorConfig, SpanConfig};
+use crate::config::{
+    load_configs, load_configs_str, load_span_configs, load_span_configs_str, sniff_architecture, Architecture,
+    EncoderConfig, ExtractorConfig, SpanConfig,
+};
 use crate::deberta::DebertaV2;
 use crate::decode::{
     deduplicate_relation_edges, propose_relation_pairs, resolve_overlaps, OverlapPolicy, RelationEdge,
@@ -40,6 +43,38 @@ impl GLiNER2 {
         match sniff_architecture(dir)? {
             Architecture::Boundary => Ok(Self::Boundary(BoundaryModel::load(dir, device, dtype)?)),
             Architecture::Span => Ok(Self::Span(SpanModel::load(dir, device, dtype)?)),
+        }
+    }
+
+    /// Load a checkpoint from in-memory file contents instead of a directory
+    /// on disk (used by the wasm bindings, where files come from `fetch` and
+    /// there is no filesystem). `weights` is the raw `model.safetensors`
+    /// bytes; the rest are the corresponding checkpoint files' contents.
+    pub fn load_from_bytes(
+        config_json: &str,
+        encoder_config_json: &str,
+        tokenizer_bytes: &[u8],
+        weights: &[u8],
+        device: &Device,
+        dtype: DType,
+    ) -> Result<Self> {
+        match crate::config::sniff_architecture_str(config_json)? {
+            Architecture::Boundary => Ok(Self::Boundary(BoundaryModel::load_from_bytes(
+                config_json,
+                encoder_config_json,
+                tokenizer_bytes,
+                weights,
+                device,
+                dtype,
+            )?)),
+            Architecture::Span => Ok(Self::Span(SpanModel::load_from_bytes(
+                config_json,
+                encoder_config_json,
+                tokenizer_bytes,
+                weights,
+                device,
+                dtype,
+            )?)),
         }
     }
 
@@ -336,6 +371,37 @@ impl BoundaryModel {
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights], dtype, device) }
             .with_context(|| format!("mapping {}", weights.display()))?;
         let head_vb = vb.clone().set_dtype(DType::F32);
+
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+    }
+
+    /// Same as [`Self::load`] but from in-memory file contents (see
+    /// [`GLiNER2::load_from_bytes`]).
+    pub fn load_from_bytes(
+        config_json: &str,
+        encoder_config_json: &str,
+        tokenizer_bytes: &[u8],
+        weights: &[u8],
+        device: &Device,
+        dtype: DType,
+    ) -> Result<Self> {
+        let (config, encoder_config) = load_configs_str(config_json, encoder_config_json)?;
+        let tokenizer =
+            Tokenizer::from_bytes(tokenizer_bytes).map_err(|e| anyhow!("loading tokenizer.json: {e}"))?;
+        let tensors = crate::safetensors32::load_buffer(weights, device).context("loading model.safetensors")?;
+        let vb = VarBuilder::from_tensors(tensors, dtype, device);
+        let head_vb = vb.clone().set_dtype(DType::F32);
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+    }
+
+    fn from_parts(
+        config: ExtractorConfig,
+        encoder_config: EncoderConfig,
+        tokenizer: Tokenizer,
+        vb: VarBuilder,
+        head_vb: VarBuilder,
+        device: &Device,
+    ) -> Result<Self> {
         let hidden = encoder_config.hidden_size;
         let cfg = &config.boundary_head;
 
@@ -1266,6 +1332,36 @@ impl SpanModel {
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights], dtype, device) }
             .with_context(|| format!("mapping {}", weights.display()))?;
         let head_vb = vb.clone().set_dtype(DType::F32);
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+    }
+
+    /// Same as [`Self::load`] but from in-memory file contents (see
+    /// [`GLiNER2::load_from_bytes`]).
+    pub fn load_from_bytes(
+        config_json: &str,
+        encoder_config_json: &str,
+        tokenizer_bytes: &[u8],
+        weights: &[u8],
+        device: &Device,
+        dtype: DType,
+    ) -> Result<Self> {
+        let (config, encoder_config) = load_span_configs_str(config_json, encoder_config_json)?;
+        let tokenizer =
+            Tokenizer::from_bytes(tokenizer_bytes).map_err(|e| anyhow!("loading tokenizer.json: {e}"))?;
+        let tensors = crate::safetensors32::load_buffer(weights, device).context("loading model.safetensors")?;
+        let vb = VarBuilder::from_tensors(tensors, dtype, device);
+        let head_vb = vb.clone().set_dtype(DType::F32);
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+    }
+
+    fn from_parts(
+        config: SpanConfig,
+        encoder_config: EncoderConfig,
+        tokenizer: Tokenizer,
+        vb: VarBuilder,
+        head_vb: VarBuilder,
+        device: &Device,
+    ) -> Result<Self> {
         let hidden = encoder_config.hidden_size;
 
         let encoder = DebertaV2::load(vb.pp("encoder"), &encoder_config).context("loading encoder")?;

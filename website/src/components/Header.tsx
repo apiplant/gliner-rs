@@ -4,6 +4,7 @@ import { LinkButton, ThemeToggle, Wordmark } from "./ui";
 import { COMPANY_URL, GITHUB_URL } from "../lib/links";
 
 const NAV = [
+  { label: "Demo", href: "/demo" },
   { label: "Features", href: "/#features" },
   { label: "Install", href: "/#install" },
   { label: "Docs", href: "/docs" },

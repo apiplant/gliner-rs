@@ -5,8 +5,9 @@
   "type": "module",
   "description": "The gliner-rs marketing and documentation site.",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build:wasm": "cd .. && wasm-pack build --target web --release --out-dir website/src/wasm-pkg",
+    "dev": "npm run build:wasm && vite",
+    "build": "npm run build:wasm && tsc --noEmit && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit"
   },

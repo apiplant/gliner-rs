@@ -304,8 +304,17 @@ export function Home() {
             extraction, PII detection and LLM guardrails — from one dependency-free binary, or
             as a library. No Python, no server.
           </p>
-          <div class="mt-7 flex flex-wrap gap-3">
-            <LinkButton href={GITHUB_URL} variant="primary" size="lg">
+          <div class="mt-7">
+            <LinkButton
+              href="/demo"
+              variant="primary"
+              class="!px-8 !py-4 !text-lg shadow-lg shadow-accent/20"
+            >
+              ▶ Try it now — runs in your browser
+            </LinkButton>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <LinkButton href={GITHUB_URL} size="lg">
               View on GitHub
             </LinkButton>
             <LinkButton href="/docs" size="lg">

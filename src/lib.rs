@@ -16,16 +16,22 @@
 //! ```
 
 pub mod chunking;
+pub mod cli_schema;
 pub mod config;
 pub mod deberta;
 pub mod decode;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod download;
 pub mod heads;
 pub mod model;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod model_path;
 pub mod processor;
 pub mod records;
+pub mod safetensors32;
 pub mod schema;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 
 pub use chunking::ChunkOptions;
 pub use decode::OverlapPolicy;
