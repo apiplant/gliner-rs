@@ -1,6 +1,6 @@
 [package]
 name = "gliner-rs"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Rust (candle) inference for GLiNER2 boundary-architecture checkpoints (e.g. fastino/gliner2.5-multi-v1)"
 license = "Apache-2.0"
