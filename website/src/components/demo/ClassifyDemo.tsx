@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, type Accessor, type Setter } from "solid-js";
 import { DemoLayout } from "./DemoLayout";
 import { ModelPicker } from "./ModelPicker";
 import { JsonView } from "./JsonView";
@@ -38,21 +38,36 @@ interface ClassifyResult {
   labels: { label: string; prob: number }[];
 }
 
+// Each task is its own signal so a keystroke in one row's inputs only
+// updates that row's fields, without replacing the task's identity in
+// the array (which would remount the row and drop input focus).
+interface TaskEntry {
+  id: number;
+  state: Accessor<TaskState>;
+  setState: Setter<TaskState>;
+}
+
+function newTaskEntry(): TaskEntry {
+  const initial = newTask();
+  const [state, setState] = createSignal(initial);
+  return { id: initial.id, state, setState };
+}
+
 export function ClassifyDemo() {
   const [model, setModel] = createSignal<LoadedModel | null>(null);
   const [text, setText] = createSignal("Great camera quality, decent performance, but poor battery life.");
-  const [tasks, setTasks] = createSignal<TaskState[]>([newTask()]);
+  const [tasks, setTasks] = createSignal<TaskEntry[]>([newTaskEntry()]);
   const [topK, setTopK] = createSignal<number | null>(null);
   const [running, setRunning] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [result, setResult] = createSignal<ClassifyResult[] | null>(null);
 
-  function updateTask(id: number, patch: Partial<TaskState>) {
-    setTasks(tasks().map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  function updateTask(entry: TaskEntry, patch: Partial<TaskState>) {
+    entry.setState({ ...entry.state(), ...patch });
   }
 
   function buildTasksJson() {
-    return tasks().map((t) => {
+    return tasks().map((entry) => entry.state()).map((t) => {
       const labels = t.labelsCsv
         .split(",")
         .map((l) => l.trim())
@@ -113,30 +128,34 @@ export function ClassifyDemo() {
           <div class="rounded-xl border border-line bg-surface p-4">
             <div class="flex items-center justify-between">
               <p class="text-sm font-medium text-ink">Tasks</p>
-              <Button size="sm" onClick={() => setTasks([...tasks(), newTask()])}>
+              <Button size="sm" onClick={() => setTasks([...tasks(), newTaskEntry()])}>
                 + Task
               </Button>
             </div>
             <div class="mt-3 space-y-4">
               <For each={tasks()}>
-                {(t) => (
+                {(entry) => (
                   <div class="rounded-lg border border-line-strong/60 bg-surface-2 p-3">
                     <div class="flex items-center gap-2">
                       <input
-                        value={t.name}
-                        onInput={(e) => updateTask(t.id, { name: e.currentTarget.value })}
+                        value={entry.state().name}
+                        onInput={(e) => updateTask(entry, { name: e.currentTarget.value })}
                         placeholder="task name"
                         class="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 font-mono text-xs text-ink outline-none focus:border-accent"
                       />
                       <label class="flex shrink-0 items-center gap-1.5 text-xs text-muted">
-                        <input type="checkbox" checked={t.multi} onChange={(e) => updateTask(t.id, { multi: e.currentTarget.checked })} />
+                        <input
+                          type="checkbox"
+                          checked={entry.state().multi}
+                          onChange={(e) => updateTask(entry, { multi: e.currentTarget.checked })}
+                        />
                         multi-label
                       </label>
                       <Show when={tasks().length > 1}>
                         <button
                           type="button"
                           aria-label="Remove task"
-                          onClick={() => setTasks(tasks().filter((x) => x.id !== t.id))}
+                          onClick={() => setTasks(tasks().filter((x) => x.id !== entry.id))}
                           class="shrink-0 text-faint hover:text-danger"
                         >
                           ×
@@ -144,30 +163,30 @@ export function ClassifyDemo() {
                       </Show>
                     </div>
                     <textarea
-                      value={t.labelsCsv}
-                      onInput={(e) => updateTask(t.id, { labelsCsv: e.currentTarget.value })}
+                      value={entry.state().labelsCsv}
+                      onInput={(e) => updateTask(entry, { labelsCsv: e.currentTarget.value })}
                       placeholder="label1, label2:description, ..."
                       rows={2}
                       class="mt-2 w-full rounded-md border border-line bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none focus:border-accent"
                     />
                     <div class="mt-2 grid grid-cols-2 gap-2">
                       <label class="text-xs text-muted">
-                        Threshold {t.threshold.toFixed(2)}
+                        Threshold {entry.state().threshold.toFixed(2)}
                         <input
                           type="range"
                           min="0.05"
                           max="0.95"
                           step="0.05"
-                          value={t.threshold}
-                          onInput={(e) => updateTask(t.id, { threshold: parseFloat(e.currentTarget.value) })}
+                          value={entry.state().threshold}
+                          onInput={(e) => updateTask(entry, { threshold: parseFloat(e.currentTarget.value) })}
                           class="mt-1 w-full accent-[var(--color-accent)]"
                         />
                       </label>
                       <label class="text-xs text-muted">
                         Activation
                         <select
-                          value={t.activation}
-                          onChange={(e) => updateTask(t.id, { activation: e.currentTarget.value as Activation })}
+                          value={entry.state().activation}
+                          onChange={(e) => updateTask(entry, { activation: e.currentTarget.value as Activation })}
                           class="mt-1 w-full rounded-md border border-line bg-surface px-1.5 py-1 text-xs text-ink"
                         >
                           <option value="auto">auto</option>
@@ -177,14 +196,14 @@ export function ClassifyDemo() {
                       </label>
                     </div>
                     <input
-                      value={t.prompt}
-                      onInput={(e) => updateTask(t.id, { prompt: e.currentTarget.value })}
+                      value={entry.state().prompt}
+                      onInput={(e) => updateTask(entry, { prompt: e.currentTarget.value })}
                       placeholder="instruction / prompt (optional)"
                       class="mt-2 w-full rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
                     />
                     <textarea
-                      value={t.examplesCsv}
-                      onInput={(e) => updateTask(t.id, { examplesCsv: e.currentTarget.value })}
+                      value={entry.state().examplesCsv}
+                      onInput={(e) => updateTask(entry, { examplesCsv: e.currentTarget.value })}
                       placeholder={"few-shot examples, one per line: input => label"}
                       rows={2}
                       class="mt-2 w-full rounded-md border border-line bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none focus:border-accent"

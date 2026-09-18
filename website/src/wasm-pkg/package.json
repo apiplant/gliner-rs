@@ -1,0 +1,28 @@
+{
+  "name": "gliner-rs",
+  "type": "module",
+  "description": "Rust (candle) inference for GLiNER2 boundary-architecture checkpoints (e.g. fastino/gliner2.5-multi-v1)",
+  "version": "0.2.1",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apiplant/gliner-rs"
+  },
+  "files": [
+    "gliner_rs_bg.wasm",
+    "gliner_rs.js",
+    "gliner_rs.d.ts"
+  ],
+  "main": "gliner_rs.js",
+  "types": "gliner_rs.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "gliner",
+    "ner",
+    "nlp",
+    "candle",
+    "inference"
+  ]
+}

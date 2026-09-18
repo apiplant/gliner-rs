@@ -8,7 +8,20 @@ pnpm install
 pnpm dev       # http://127.0.0.1:5275
 pnpm build     # → dist/
 pnpm check     # types only
+pnpm build:wasm  # regenerate src/wasm-pkg/ (needs Rust + wasm-pack)
 ```
+
+## The wasm package is committed
+
+The `/demo` pages run gliner-rs itself in the browser, so the site depends on
+`src/wasm-pkg/` — the `wasm-pack` output for the crate one directory up. That
+directory is **committed** rather than generated during the build: the deploy
+environment has Node and nothing else, and asking it for a Rust toolchain would
+mean installing rustup and compiling candle on every deploy.
+
+So `pnpm build` never runs `wasm-pack`; it only checks the package is there.
+After changing anything under `../src/`, run `pnpm build:wasm` and commit the
+result, or the site keeps serving the previous build of the crate.
 
 ## The version is not copied here
 
