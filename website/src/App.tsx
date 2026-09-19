@@ -13,6 +13,7 @@ import { PiiDemo } from "./components/demo/PiiDemo";
 import { GuardrailsDemo } from "./components/demo/GuardrailsDemo";
 import { ClassifyDemo } from "./components/demo/ClassifyDemo";
 import { GenericDemo } from "./components/demo/GenericDemo";
+import { PlaygroundDemo } from "./components/demo/PlaygroundDemo";
 import { LinkButton } from "./components/ui";
 
 function Shell(props: ParentProps) {
@@ -52,6 +53,7 @@ const Router = createRouter({
     { path: "/docs/pii", component: DocsPii },
     { path: "/docs/guardrails", component: DocsGuardrails },
     { path: "/demo", component: PiiDemo },
+    { path: "/demo/playground", component: PlaygroundDemo },
     { path: "/demo/pii", component: PiiDemo },
     { path: "/demo/guardrails", component: GuardrailsDemo },
     { path: "/demo/classify", component: ClassifyDemo },

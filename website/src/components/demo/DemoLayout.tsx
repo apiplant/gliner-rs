@@ -3,10 +3,11 @@ import { useLocation } from "@solidjs/router";
 import { LinkButton } from "../ui";
 
 const TABS = [
-  { label: "PII detection", href: "/demo/pii" },
-  { label: "Guardrails", href: "/demo/guardrails" },
   { label: "Classify", href: "/demo/classify" },
   { label: "Generic schema", href: "/demo/schema" },
+  { label: "PII detection", href: "/demo/pii" },
+  { label: "Guardrails", href: "/demo/guardrails" },
+  { label: "Jev playground", href: "/demo/playground" },
 ];
 
 export function DemoLayout(props: ParentProps<{ title: string; description: string }>) {
