@@ -15,13 +15,18 @@ struct Layer {
     intermediate: Linear,
     output_dense: Linear,
     output_norm: LayerNorm,
+    /// `share_att_key` positional projections of the (fixed) relative
+    /// embeddings, `[1, num_heads, 2*att_span, head_dim]`. These don't depend
+    /// on the input, so they're computed once at load time instead of on
+    /// every forward call.
+    pos_q: Tensor,
+    pos_k: Tensor,
 }
 
 pub struct DebertaV2 {
     word_embeddings: Embedding,
     embeddings_norm: LayerNorm,
     layers: Vec<Layer>,
-    rel_embeddings: Tensor,
     num_heads: usize,
     head_dim: usize,
     att_span: i64,
@@ -47,6 +52,13 @@ fn log_bucket_position(rel: i64, bucket_size: i64, max_position: i64) -> i64 {
     (log_pos * rel.signum() as f32) as i64
 }
 
+fn split_heads(x: &Tensor, num_heads: usize, head_dim: usize) -> Result<Tensor> {
+    let (b, t, _) = x.dims3()?;
+    x.reshape((b, t, num_heads, head_dim))?
+        .transpose(1, 2)?
+        .contiguous()
+}
+
 impl DebertaV2 {
     pub fn load(vb: VarBuilder, cfg: &EncoderConfig) -> Result<Self> {
         let h = cfg.hidden_size;
@@ -54,29 +66,40 @@ impl DebertaV2 {
         let word_embeddings = embedding(cfg.vocab_size, h, vb.pp("embeddings.word_embeddings"))?;
         let embeddings_norm = layer_norm(h, eps, vb.pp("embeddings.LayerNorm"))?;
         let enc = vb.pp("encoder");
+        let att_span = cfg.pos_ebd_size();
+        let rel_weight = enc.get((2 * att_span as usize, h), "rel_embeddings.weight")?;
+        let rel_norm = layer_norm(h, eps, enc.pp("LayerNorm"))?;
+        let rel_embeddings = rel_norm.forward(&rel_weight)?;
+        let rel = rel_embeddings.unsqueeze(0)?;
+        let num_heads = cfg.num_attention_heads;
+        let head_dim = h / num_heads;
+
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
         for i in 0..cfg.num_hidden_layers {
             let l = enc.pp(format!("layer.{i}"));
+            let query_proj = linear(h, h, l.pp("attention.self.query_proj"))?;
+            let key_proj = linear(h, h, l.pp("attention.self.key_proj"))?;
+            // share_att_key: positional projections reuse the content projections
+            // and don't depend on the input, so they're fixed once the weights load.
+            let pos_q = split_heads(&query_proj.forward(&rel)?, num_heads, head_dim)?;
+            let pos_k = split_heads(&key_proj.forward(&rel)?, num_heads, head_dim)?;
             layers.push(Layer {
-                query_proj: linear(h, h, l.pp("attention.self.query_proj"))?,
-                key_proj: linear(h, h, l.pp("attention.self.key_proj"))?,
+                query_proj,
+                key_proj,
                 value_proj: linear(h, h, l.pp("attention.self.value_proj"))?,
                 attn_dense: linear(h, h, l.pp("attention.output.dense"))?,
                 attn_norm: layer_norm(h, eps, l.pp("attention.output.LayerNorm"))?,
                 intermediate: linear(h, cfg.intermediate_size, l.pp("intermediate.dense"))?,
                 output_dense: linear(cfg.intermediate_size, h, l.pp("output.dense"))?,
                 output_norm: layer_norm(h, eps, l.pp("output.LayerNorm"))?,
+                pos_q,
+                pos_k,
             });
         }
-        let att_span = cfg.pos_ebd_size();
-        let rel_weight = enc.get((2 * att_span as usize, h), "rel_embeddings.weight")?;
-        let rel_norm = layer_norm(h, eps, enc.pp("LayerNorm"))?;
-        let rel_embeddings = rel_norm.forward(&rel_weight)?;
         Ok(Self {
             word_embeddings,
             embeddings_norm,
             layers,
-            rel_embeddings,
             num_heads: cfg.num_attention_heads,
             head_dim: h / cfg.num_attention_heads,
             att_span,
@@ -107,13 +130,6 @@ impl DebertaV2 {
         Ok((c2p, p2c))
     }
 
-    fn split_heads(&self, x: &Tensor) -> Result<Tensor> {
-        let (b, t, _) = x.dims3()?;
-        x.reshape((b, t, self.num_heads, self.head_dim))?
-            .transpose(1, 2)?
-            .contiguous()
-    }
-
     /// `input_ids` / `attention_mask`: `[B, T]` (u32). Returns `[B, T, H]`.
     pub fn forward(&self, input_ids: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
         let (b, t) = input_ids.dims2()?;
@@ -140,22 +156,18 @@ impl DebertaV2 {
         let floor = Tensor::full(min_value, (b, self.num_heads, t, t), &self.device)?
             .to_dtype(self.dtype)?;
 
-        let rel = self.rel_embeddings.unsqueeze(0)?;
         let scale = ((self.head_dim * 3) as f64).sqrt();
         for layer in &self.layers {
-            let q = self.split_heads(&layer.query_proj.forward(&hidden)?)?;
-            let k = self.split_heads(&layer.key_proj.forward(&hidden)?)?;
-            let v = self.split_heads(&layer.value_proj.forward(&hidden)?)?;
-            // share_att_key: positional projections reuse the content projections.
-            let pos_q = self.split_heads(&layer.query_proj.forward(&rel)?)?;
-            let pos_k = self.split_heads(&layer.key_proj.forward(&rel)?)?;
+            let q = split_heads(&layer.query_proj.forward(&hidden)?, self.num_heads, self.head_dim)?;
+            let k = split_heads(&layer.key_proj.forward(&hidden)?, self.num_heads, self.head_dim)?;
+            let v = split_heads(&layer.value_proj.forward(&hidden)?, self.num_heads, self.head_dim)?;
 
             let content = q.matmul(&k.t()?)?;
             let c2p = q
-                .broadcast_matmul(&pos_k.t()?)?
+                .broadcast_matmul(&layer.pos_k.t()?)?
                 .gather(&c2p_idx, 3)?;
             let p2c = k
-                .broadcast_matmul(&pos_q.t()?)?
+                .broadcast_matmul(&layer.pos_q.t()?)?
                 .gather(&p2c_idx, 3)?
                 .transpose(2, 3)?;
             let scores = ((content + c2p)? + p2c)?.affine(1.0 / scale, 0.0)?;

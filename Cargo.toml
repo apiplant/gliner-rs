@@ -41,3 +41,7 @@ getrandom3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 [features]
 default = []
 cuda = ["candle-core/cuda", "candle-nn/cuda"]
+# ~5-10% faster CPU matmul on machines with Intel MKL installed (e.g. via
+# oneAPI). No effect on systems without it: `intel-mkl-src`'s build script
+# fails at link time if MKL isn't found, so this stays opt-in.
+mkl = ["candle-core/mkl", "candle-nn/mkl"]

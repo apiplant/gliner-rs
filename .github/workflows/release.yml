@@ -144,12 +144,12 @@ jobs:
           if-no-files-found: error
 
   # Repackaging, not building: the .debs and the pacman package are assembled
-  # on one runner from the archives the `binaries` job produced, because
-  # putting an already-built binary into an ar or zst archive is
-  # architecture-independent work.
+  # on one runner from the archives the `binaries` and `cuda-binary` jobs
+  # produced, because putting an already-built binary into an ar or zst
+  # archive is architecture-independent work.
   packages:
     name: distro packages
-    needs: binaries
+    needs: [binaries, cuda-binary]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -203,6 +203,34 @@ jobs:
           build amd64 x86_64-unknown-linux-gnu
           build arm64 aarch64-unknown-linux-gnu
 
+          # The CUDA build, x86_64 only, from its own archive and control
+          # file (different Depends/Conflicts/Provides than the CPU build).
+          tar xzf "dist/gliner-rs-cuda-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz"
+          cuda_src="gliner-rs-cuda-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          cuda_root="stage/gliner-rs-cuda-amd64"
+
+          install -Dm755 "$cuda_src/gliner" "$cuda_root/usr/bin/gliner"
+          install -Dm755 "$cuda_src/gliner-classify" "$cuda_root/usr/bin/gliner-classify"
+          install -Dm755 "$cuda_src/gliner-pii" "$cuda_root/usr/bin/gliner-pii"
+          install -Dm755 "$cuda_src/gliner-guardrails" "$cuda_root/usr/bin/gliner-guardrails"
+          install -Dm644 "$cuda_src/README.md" "$cuda_root/usr/share/doc/gliner-rs-cuda/README.md"
+
+          cuda_size=$(du -ks "$cuda_root/usr" | cut -f1)
+
+          install -d "$cuda_root/DEBIAN"
+          sed -e "s/@VERSION@/$version/" \
+              -e "s/@ARCH@/amd64/" \
+              -e "s/@INSTALLED_SIZE@/$cuda_size/" \
+              "packaging/debian/control-cuda" > "$cuda_root/DEBIAN/control"
+
+          if grep -qE '@[A-Z_]+@' "$cuda_root/DEBIAN/control"; then
+            echo "::error::unsubstituted placeholder in the CUDA control file" >&2
+            exit 1
+          fi
+
+          dpkg-deb --root-owner-group --build "$cuda_root" \
+            "debs/gliner-rs-cuda_${version}-1_amd64.deb"
+
           cd debs
           for deb in *.deb; do shasum -a 256 "$deb" > "$deb.sha256"; done
 
@@ -247,6 +275,47 @@ jobs:
           cd pkg
           shasum -a 256 "gliner-rs-$version-1-x86_64.pkg.tar.zst" \
             > "gliner-rs-$version-1-x86_64.pkg.tar.zst.sha256"
+          cd ..
+
+          # Same idea, CUDA build: its own PKGBUILD (different depends,
+          # conflicts/provides against gliner-rs) and its own archive.
+          mkdir -p pkg-cuda
+          sed \
+            -e "s/@VERSION@/$version/g" \
+            -e "s/@SHA_LINUX_X86_64_CUDA@/$(sha256sum "dist/gliner-rs-cuda-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz" | cut -d' ' -f1)/" \
+            "packaging/pacman/PKGBUILD-cuda" > "pkg-cuda/PKGBUILD"
+
+          if grep -qE '@[A-Z_]+@' "pkg-cuda/PKGBUILD"; then
+            echo "::error::unsubstituted placeholder in PKGBUILD-cuda" >&2
+            grep -nE '@[A-Z_]+@' "pkg-cuda/PKGBUILD" >&2
+            exit 1
+          fi
+
+          cp "dist/gliner-rs-cuda-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz" \
+             "pkg-cuda/gliner-rs-cuda-$version-x86_64.tar.gz"
+
+          docker run --rm -v "$PWD/pkg-cuda:/pkg" -e "OWNER=$(id -u):$(id -g)" \
+            archlinux:base-devel bash -c '
+              set -eu
+              useradd -m builder
+              chown -R builder /pkg
+              su builder -c "cd /pkg && makepkg --cleanbuild --force --nodeps -p PKGBUILD"
+              chown -R "$OWNER" /pkg
+            '
+
+          [ -f "pkg-cuda/gliner-rs-cuda-$version-1-x86_64.pkg.tar.zst" ]
+          cd pkg-cuda
+          shasum -a 256 "gliner-rs-cuda-$version-1-x86_64.pkg.tar.zst" \
+            > "gliner-rs-cuda-$version-1-x86_64.pkg.tar.zst.sha256"
+          cd ..
+
+          # Copied alongside the CPU package rather than kept in its own
+          # build directory: the artifact upload below infers its root from
+          # the common ancestor of the paths it's given, and one flat `pkg/`
+          # keeps that root the same as before instead of nesting it.
+          cp pkg-cuda/gliner-rs-cuda-$version-1-x86_64.pkg.tar.zst \
+             pkg-cuda/gliner-rs-cuda-$version-1-x86_64.pkg.tar.zst.sha256 \
+             pkg/
 
       # A package that installs but declares the wrong architecture, or that
       # quietly lost a binary, is worth catching before it is a release asset.
@@ -258,6 +327,17 @@ jobs:
             dpkg-deb --contents "debs/gliner-rs_${version}-1_amd64.deb" | grep -q "./usr/bin/$bin"
           done
           [ "$(dpkg-deb --field "debs/gliner-rs_${version}-1_arm64.deb" Architecture)" = arm64 ]
+
+          # The CUDA .deb declares a Depends on libcuda1, which the runner
+          # doesn't have and shouldn't be made to install (that would pull in
+          # an NVIDIA driver package on a CI box). Check its metadata and
+          # contents instead of installing it.
+          dpkg-deb --info "debs/gliner-rs-cuda_${version}-1_amd64.deb"
+          for bin in gliner gliner-classify gliner-pii gliner-guardrails; do
+            dpkg-deb --contents "debs/gliner-rs-cuda_${version}-1_amd64.deb" | grep -q "./usr/bin/$bin"
+          done
+          [ "$(dpkg-deb --field "debs/gliner-rs-cuda_${version}-1_amd64.deb" Depends)" = "libcuda1" ]
+          [ "$(dpkg-deb --field "debs/gliner-rs-cuda_${version}-1_amd64.deb" Conflicts)" = "gliner-rs" ]
 
           # The runner is amd64, so only that one can actually be installed and
           # run — which is the check that matters: `--version` proves the
@@ -276,6 +356,19 @@ jobs:
             pkg=/pkg/gliner-rs-$version-1-x86_64.pkg.tar.zst
             bsdtar -xOf \"\$pkg\" .PKGINFO | grep -qx 'pkgname = gliner-rs'
             bsdtar -xOf \"\$pkg\" .PKGINFO | grep -qx 'pkgver = $version-1'
+            bsdtar -tf \"\$pkg\" | grep -qx 'usr/bin/gliner'
+            bsdtar -tf \"\$pkg\" | grep -qx 'usr/bin/gliner-classify'
+            bsdtar -tf \"\$pkg\" | grep -qx 'usr/bin/gliner-pii'
+            bsdtar -tf \"\$pkg\" | grep -qx 'usr/bin/gliner-guardrails'
+          "
+
+          # Same read-back check for the CUDA pacman package.
+          docker run --rm -v "$PWD/pkg-cuda:/pkg" archlinux:base-devel bash -c "
+            set -eu
+            pkg=/pkg/gliner-rs-cuda-$version-1-x86_64.pkg.tar.zst
+            bsdtar -xOf \"\$pkg\" .PKGINFO | grep -qx 'pkgname = gliner-rs-cuda'
+            bsdtar -xOf \"\$pkg\" .PKGINFO | grep -qx 'pkgver = $version-1'
+            bsdtar -xOf \"\$pkg\" .PKGINFO | grep -qx 'conflict = gliner-rs'
             bsdtar -tf \"\$pkg\" | grep -qx 'usr/bin/gliner'
             bsdtar -tf \"\$pkg\" | grep -qx 'usr/bin/gliner-classify'
             bsdtar -tf \"\$pkg\" | grep -qx 'usr/bin/gliner-pii'
@@ -357,12 +450,21 @@ jobs:
             | --- | --- |
             | Debian/Ubuntu amd64 | `gliner-rs_${{ steps.version.outputs.version }}-1_amd64.deb` |
             | Debian/Ubuntu arm64 | `gliner-rs_${{ steps.version.outputs.version }}-1_arm64.deb` |
+            | Debian/Ubuntu amd64, CUDA | `gliner-rs-cuda_${{ steps.version.outputs.version }}-1_amd64.deb` |
+
+            `gliner-rs-cuda` conflicts with `gliner-rs` (both install the same
+            binary names), so only one can be installed at a time. It depends on
+            `libcuda1`; see the CUDA build note above for driver compatibility.
 
             ## Arch package
 
             ```
             sudo pacman -U gliner-rs-${{ steps.version.outputs.version }}-1-x86_64.pkg.tar.zst
             ```
+
+            A CUDA build is published the same way, as
+            `gliner-rs-cuda-${{ steps.version.outputs.version }}-1-x86_64.pkg.tar.zst`,
+            depending on `nvidia-utils` and conflicting with `gliner-rs`.
 
             The same package is published to the signed pacman repository at
             `apiplant.github.io/pacman`, which is the way to get updates with

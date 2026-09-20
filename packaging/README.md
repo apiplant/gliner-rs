@@ -17,7 +17,9 @@ a library to crates.io means.
 | --- | --- |
 | `homebrew/gliner-rs.rb` | `apiplant/homebrew-tap`, as `Formula/gliner-rs.rb` |
 | `pacman/PKGBUILD` | the release itself, as a `.pkg.tar.zst` asset, and `apiplant/pacman` |
+| `pacman/PKGBUILD-cuda` | the release itself, as a `.pkg.tar.zst` asset, and `apiplant/pacman` |
 | `debian/control` | the release itself, as `.deb` assets |
+| `debian/control-cuda` | the release itself, as `.deb` assets |
 | `apt/apt-ftparchive.conf` | `apiplant/apt`, served at `apt.apiplant.com` |
 | (n/a — `cargo publish`) | crates.io, as the `gliner-rs` crate |
 
@@ -42,7 +44,7 @@ secrets are copied — still gets a clean release.
 | --- | --- |
 | macOS (Apple Silicon, `aarch64-apple-darwin`) | archive + Homebrew formula |
 | Linux x86_64 (`x86_64-unknown-linux-gnu`) | archive, `.deb` + apt repo, Arch package + pacman repo, Homebrew formula |
-| Linux x86_64, CUDA (`x86_64-unknown-linux-gnu` + `--features cuda`) | archive only |
+| Linux x86_64, CUDA (`x86_64-unknown-linux-gnu` + `--features cuda`) | archive, `.deb` + apt repo, Arch package + pacman repo |
 | Linux aarch64 (`aarch64-unknown-linux-gnu`) | archive, `.deb` + apt repo, Homebrew formula |
 | Any platform Cargo runs on | `cargo install gliner-rs`, via crates.io |
 
@@ -54,12 +56,20 @@ The CUDA build (`gliner-rs-cuda-<tag>-x86_64-unknown-linux-gnu.tar.gz`) is
 compiled in the `cuda-binary` job, in an `nvidia/cuda:12.6.3-devel-ubuntu22.04`
 container — that gives `nvcc` and the CUDA headers/stub libraries the build
 needs (`candle-core`'s `cuda` feature links `cudarc` against them), without
-needing an actual GPU on the runner. It ships as a plain archive only, not a
-`.deb`/Arch/Homebrew package: those ecosystems have no clean way to express
-"needs a host NVIDIA driver compatible with CUDA 12.6", so a user installing
-it needs to already know that and have it. There is no aarch64 or macOS CUDA
-build — no CUDA on Apple Silicon, and no arm64 CUDA audience to justify the
-extra job.
+needing an actual GPU on the runner. It also ships as `gliner-rs-cuda`, a
+separate `.deb` (`packaging/debian/control-cuda`) and Arch package
+(`packaging/pacman/PKGBUILD-cuda`), published to the same apt and pacman
+repositories as the CPU build. Neither package can express "needs a host
+NVIDIA driver compatible with CUDA 12.1" precisely — the `.deb` depends on
+`libcuda1` and the Arch package on `nvidia-utils`, which get the runtime
+library installed but don't check the driver actually supports this CUDA
+toolkit version, so a user installing it still needs to know that and have
+it. Both packages `Conflicts`/`conflicts` and `Provides`/`provides`
+`gliner-rs`, since they install the same binary names and only one build can
+be on a system at a time. Not published to Homebrew: the formula has no
+mechanism for a CUDA variant with a driver dependency. There is no aarch64
+or macOS CUDA build — no CUDA on Apple Silicon, and no arm64 CUDA audience to
+justify the extra job.
 
 The order is: build every archive, build the distro packages from those
 archives, publish the release, then publish to crates.io, Homebrew, apt and

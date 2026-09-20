@@ -1,0 +1,39 @@
+# Maintainer: apiplant <releases@apiplant.com>
+#
+# Built by the release workflow, which fills in the version and checksum and
+# publishes the resulting package to apiplant.github.io/pacman. It is not an
+# AUR manifest: the package is named `gliner-rs-cuda` rather than
+# `gliner-rs-cuda-bin` and carries no `provides`/`conflicts` pair beyond the
+# one against `gliner-rs` below.
+pkgname=gliner-rs-cuda
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Rust (candle) inference for GLiNER2 checkpoints (CUDA build)"
+arch=('x86_64')
+url="https://github.com/apiplant/gliner-rs"
+license=('Apache-2.0')
+# nvidia-utils ships libcuda.so.1, the driver-side runtime library this
+# build links against. It does not pull in a matching toolkit version; the
+# host driver still needs to support the CUDA release this was built
+# against (see packaging/README.md).
+depends=('nvidia-utils')
+provides=('gliner-rs')
+conflicts=('gliner-rs')
+# The release archive holding all four binaries and the README. The workflow
+# builds the package before the release exists and drops the archive next to
+# this file, which makepkg picks up instead of downloading; the URL is what
+# makes the PKGBUILD work on its own once the release is published.
+source=("$pkgname-$pkgver-x86_64.tar.gz::$url/releases/download/v$pkgver/gliner-rs-cuda-v$pkgver-x86_64-unknown-linux-gnu.tar.gz")
+sha256sums=('@SHA_LINUX_X86_64_CUDA@')
+# The release profile already strips symbols, and makepkg's strip pass on an
+# LTO'd binary buys nothing.
+options=('!strip' '!debug')
+
+package() {
+  local src="$srcdir/gliner-rs-cuda-v$pkgver-x86_64-unknown-linux-gnu"
+  install -Dm755 "$src/gliner" "$pkgdir/usr/bin/gliner"
+  install -Dm755 "$src/gliner-classify" "$pkgdir/usr/bin/gliner-classify"
+  install -Dm755 "$src/gliner-pii" "$pkgdir/usr/bin/gliner-pii"
+  install -Dm755 "$src/gliner-guardrails" "$pkgdir/usr/bin/gliner-guardrails"
+  install -Dm644 "$src/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

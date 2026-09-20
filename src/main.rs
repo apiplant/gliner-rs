@@ -83,6 +83,13 @@ struct Args {
     /// Run the encoder in float16.
     #[arg(long)]
     fp16: bool,
+
+    /// CPU threads for matmul (candle/rayon). Defaults to min(8, available
+    /// parallelism): the model's many small sequential matmuls oversubscribe
+    /// and slow down past a handful of threads, so "all cores" is not the
+    /// fastest setting. Ignored with --cuda.
+    #[arg(long, env = "GLINER_THREADS")]
+    threads: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -104,6 +111,23 @@ impl Variant {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    if !args.cuda {
+        // candle sizes its rayon pool from RAYON_NUM_THREADS (read once, lazily, on
+        // first tensor op); with the `mkl` feature it instead calls into MKL, whose
+        // own internal OpenMP pool reads OMP_NUM_THREADS/MKL_NUM_THREADS. Left unset,
+        // both default to all logical CPUs, which oversubscribes badly on this
+        // model's many small sequential matmuls; cap them unless already chosen.
+        let threads = args.threads.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(8));
+        if std::env::var_os("RAYON_NUM_THREADS").is_none() {
+            std::env::set_var("RAYON_NUM_THREADS", threads.to_string());
+        }
+        if std::env::var_os("OMP_NUM_THREADS").is_none() {
+            std::env::set_var("OMP_NUM_THREADS", threads.to_string());
+        }
+        if std::env::var_os("MKL_NUM_THREADS").is_none() {
+            std::env::set_var("MKL_NUM_THREADS", threads.to_string());
+        }
+    }
     let device = if args.cuda { Device::new_cuda(0)? } else { Device::Cpu };
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };
     let model_path = model_path::resolve(VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;

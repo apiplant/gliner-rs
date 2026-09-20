@@ -47,6 +47,12 @@ Supported:
   `gliner-classify` uses this for `-f`/multi-text input.
 - CPU, or CUDA with `--features cuda`. The encoder can run in F32 or F16; the heads always
   run in F32.
+- CPU matmul threading is capped (default: `min(8, available parallelism)`) instead of
+  using every logical core, since this model's many small sequential matmuls oversubscribe
+  past that; override with `--threads`/`GLINER_THREADS`, or by setting `RAYON_NUM_THREADS`
+  (and, with the `mkl` feature, `OMP_NUM_THREADS`/`MKL_NUM_THREADS`) yourself before those
+  are read. With `--features mkl` (needs Intel MKL installed, e.g. via oneAPI), matmul
+  runs through MKL instead of the built-in pure-Rust backend for a modest CPU speedup.
 
 ## Installation
 
