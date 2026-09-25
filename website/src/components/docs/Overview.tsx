@@ -28,6 +28,8 @@ export function DocsOverview() {
           Any checkpoint in the boundary-architecture family works, including{" "}
           <IC>fastino/gliner2.5-multi-v1</IC> (the default — 205M parameters, all languages),{" "}
           <IC>gliner2.5-small-v1</IC>, <IC>gliner2.5-base-v1</IC> (smaller, faster, English-leaning),{" "}
+          <IC>GLiNER2.5-Decide</IC>, <IC>GLiNER2.5-multi-Decide</IC>, <IC>GLiNER2.5-Decide-1B</IC>{" "}
+          (decision/verification fine-tunes),{" "}
           <IC>gliner2-privacy-filter-PII-multi</IC>, <IC>gliguard-LLMGuardrails-300M</IC>,{" "}
           <IC>GLiNER2-Guardrails-PII-Multi</IC>, and other fine-tunes on the same architecture. On
           first use, each binary downloads its checkpoint automatically into a cache directory —

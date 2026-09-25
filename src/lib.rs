@@ -26,6 +26,7 @@ pub mod heads;
 pub mod model;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod model_path;
+pub mod modernbert;
 pub mod processor;
 pub mod records;
 pub mod safetensors32;

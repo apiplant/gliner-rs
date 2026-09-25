@@ -15,6 +15,7 @@ use crate::config::{
     EncoderConfig, ExtractorConfig, SpanConfig,
 };
 use crate::deberta::DebertaV2;
+use crate::modernbert::ModernBert;
 use crate::decode::{
     deduplicate_relation_edges, propose_relation_pairs, resolve_overlaps, OverlapPolicy, RelationEdge,
     RelationProposalSettings, RelationRoles, ScoredSpan,
@@ -274,8 +275,30 @@ impl Default for ExtractOptions {
     }
 }
 
+/// Either encoder architecture a boundary-architecture checkpoint can use.
+enum Encoder {
+    Deberta(DebertaV2),
+    ModernBert(ModernBert),
+}
+
+impl Encoder {
+    fn load(vb: VarBuilder, cfg: &EncoderConfig) -> Result<Self> {
+        match cfg {
+            EncoderConfig::Deberta(c) => Ok(Encoder::Deberta(DebertaV2::load(vb, c).context("loading DeBERTa-v2 encoder")?)),
+            EncoderConfig::ModernBert(c) => Ok(Encoder::ModernBert(ModernBert::load(vb, c).context("loading ModernBERT encoder")?)),
+        }
+    }
+
+    fn forward(&self, input_ids: &Tensor, attention_mask: &Tensor) -> candle_core::Result<Tensor> {
+        match self {
+            Encoder::Deberta(e) => e.forward(input_ids, attention_mask),
+            Encoder::ModernBert(e) => e.forward(input_ids, attention_mask),
+        }
+    }
+}
+
 pub struct BoundaryModel {
-    encoder: DebertaV2,
+    encoder: Encoder,
     head: BoundaryHead,
     classifier: Classifier,
     relation_scorer: Option<RelationScorer>,
@@ -402,10 +425,10 @@ impl BoundaryModel {
         head_vb: VarBuilder,
         device: &Device,
     ) -> Result<Self> {
-        let hidden = encoder_config.hidden_size;
+        let hidden = encoder_config.hidden_size();
         let cfg = &config.boundary_head;
 
-        let encoder = DebertaV2::load(vb.pp("encoder"), &encoder_config).context("loading encoder")?;
+        let encoder = Encoder::load(vb.pp("encoder"), &encoder_config).context("loading encoder")?;
         let head = BoundaryHead::load(head_vb.pp("boundary_head"), hidden, cfg).context("loading boundary head")?;
         let classifier = Classifier::load(head_vb.pp("classifier"), hidden).context("loading classifier")?;
         let relation_scorer = if cfg.enable_relations {
@@ -1309,7 +1332,7 @@ fn classification_value(spec: &ClassificationSpec, logits: &[f32], include_confi
 /// structures, relations or record extraction, so those bail with a clear
 /// error instead of being ported.
 pub struct SpanModel {
-    encoder: DebertaV2,
+    encoder: Encoder,
     classifier: Classifier,
     count_pred: Option<CountPred>,
     count_embed: Option<CountLstmStep0>,
@@ -1362,9 +1385,9 @@ impl SpanModel {
         head_vb: VarBuilder,
         device: &Device,
     ) -> Result<Self> {
-        let hidden = encoder_config.hidden_size;
+        let hidden = encoder_config.hidden_size();
 
-        let encoder = DebertaV2::load(vb.pp("encoder"), &encoder_config).context("loading encoder")?;
+        let encoder = Encoder::load(vb.pp("encoder"), &encoder_config).context("loading encoder")?;
         let classifier = Classifier::load_span(head_vb.pp("classifier"), hidden).context("loading classifier")?;
 
         // Entity extraction needs `count_pred`/`count_embed`/`span_rep`; only

@@ -222,6 +222,14 @@ export function ModelPicker(props: { models: ModelDef[]; onLoaded: (m: LoadedMod
           </div>
           <p class="mt-3 text-sm text-muted">{selected().description}</p>
           <p class="mt-1 font-mono text-xs text-faint">{selected().hfRepo}</p>
+          <Show when={props.models.some((m) => m.key.startsWith("decide"))}>
+            <p class="mt-2 text-xs text-faint">
+              The largest Decide checkpoint, <code class="font-mono">GLiNER2.5-Decide-1B</code>, isn't listed here —
+              its ~4.5GB weights don't fit under wasm32's 4GiB memory cap. It's available in the native{" "}
+              <code class="font-mono">gliner</code> / <code class="font-mono">gliner-classify</code> CLIs via{" "}
+              <code class="font-mono">--model-variant decide-1b</code>.
+            </p>
+          </Show>
           <div class="mt-4 flex items-center gap-3">
             <Button variant="primary" disabled={busy()} onClick={load}>
               {busy() ? "Loading…" : loadedKey() === selected().key && preferredSource() === "hf" ? "Reload" : "Download & load"}

@@ -72,7 +72,7 @@ pub struct BoundaryHeadConfig {
 
 /// DeBERTa-v2 encoder configuration.
 #[derive(Debug, Clone, Deserialize)]
-pub struct EncoderConfig {
+pub struct DebertaConfig {
     pub hidden_size: usize,
     pub num_attention_heads: usize,
     pub num_hidden_layers: usize,
@@ -110,7 +110,7 @@ fn yes() -> bool {
     true
 }
 
-impl EncoderConfig {
+impl DebertaConfig {
     pub fn max_relative_positions(&self) -> i64 {
         if self.max_relative_positions < 1 {
             self.max_position_embeddings as i64
@@ -125,6 +125,43 @@ impl EncoderConfig {
             self.position_buckets
         } else {
             self.max_relative_positions()
+        }
+    }
+}
+
+/// Either encoder architecture a checkpoint's `encoder_config/config.json`
+/// can describe. Dispatched on `model_type` by [`sniff_encoder_config`].
+#[derive(Debug, Clone)]
+pub enum EncoderConfig {
+    Deberta(DebertaConfig),
+    ModernBert(crate::modernbert::ModernBertConfig),
+}
+
+impl EncoderConfig {
+    pub fn hidden_size(&self) -> usize {
+        match self {
+            EncoderConfig::Deberta(c) => c.hidden_size,
+            EncoderConfig::ModernBert(c) => c.hidden_size,
+        }
+    }
+}
+
+/// Parses `encoder_config/config.json`, picking the `Deberta` or `ModernBert`
+/// variant by its `model_type` field (`deberta-v2` when absent, matching the
+/// original checkpoints which predate this field).
+fn parse_encoder_config(encoder_config_json: &str) -> Result<EncoderConfig> {
+    let value: serde_json::Value =
+        serde_json::from_str(encoder_config_json).context("parsing encoder_config/config.json")?;
+    let model_type = value.get("model_type").and_then(|v| v.as_str()).unwrap_or("deberta-v2");
+    match model_type {
+        "modernbert" => Ok(EncoderConfig::ModernBert(
+            serde_json::from_str(encoder_config_json).context("parsing encoder_config/config.json as ModernBERT")?,
+        )),
+        _ => {
+            let cfg: DebertaConfig =
+                serde_json::from_str(encoder_config_json).context("parsing encoder_config/config.json as DeBERTa-v2")?;
+            validate_deberta(&cfg)?;
+            Ok(EncoderConfig::Deberta(cfg))
         }
     }
 }
@@ -177,13 +214,12 @@ pub fn load_span_configs(model_dir: &Path) -> Result<(SpanConfig, EncoderConfig)
 /// `encoder_config/config.json` strings.
 pub fn load_span_configs_str(config_json: &str, encoder_config_json: &str) -> Result<(SpanConfig, EncoderConfig)> {
     let cfg: SpanConfig = serde_json::from_str(config_json).context("parsing config.json")?;
-    let enc: EncoderConfig = serde_json::from_str(encoder_config_json).context("parsing encoder_config/config.json")?;
+    let enc = parse_encoder_config(encoder_config_json)?;
     if cfg.token_pooling != "first" {
         bail!("only token_pooling='first' is supported, got {:?}", cfg.token_pooling);
     }
     // `counting_layer` gates entity/structure extraction (see `SpanModel::extract`);
     // classification never needs it, so an unsupported layer isn't fatal here.
-    validate_encoder(&enc)?;
     Ok((cfg, enc))
 }
 
@@ -198,7 +234,7 @@ pub fn load_configs(model_dir: &Path) -> Result<(ExtractorConfig, EncoderConfig)
 /// `encoder_config/config.json` strings.
 pub fn load_configs_str(config_json: &str, encoder_config_json: &str) -> Result<(ExtractorConfig, EncoderConfig)> {
     let cfg: ExtractorConfig = serde_json::from_str(config_json).context("parsing config.json")?;
-    let enc: EncoderConfig = serde_json::from_str(encoder_config_json).context("parsing encoder_config/config.json")?;
+    let enc = parse_encoder_config(encoder_config_json)?;
     validate(&cfg, &enc)?;
     Ok((cfg, enc))
 }
@@ -234,10 +270,12 @@ fn validate(cfg: &ExtractorConfig, enc: &EncoderConfig) -> Result<()> {
     if h.pair_dim % h.multihead_pair_compat_heads != 0 || h.boundary_dim % 2 != 0 || h.pair_dim % 2 != 0 {
         bail!("pair_dim/boundary_dim incompatible with rotary endpoints or compat heads");
     }
-    validate_encoder(enc)
+    // Encoder-specific validation already ran in `parse_encoder_config`.
+    let _ = enc;
+    Ok(())
 }
 
-fn validate_encoder(enc: &EncoderConfig) -> Result<()> {
+fn validate_deberta(enc: &DebertaConfig) -> Result<()> {
     if !enc.relative_attention
         || !enc.share_att_key
         || enc.position_biased_input

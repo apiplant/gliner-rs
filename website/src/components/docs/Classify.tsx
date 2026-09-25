@@ -15,11 +15,12 @@ export function DocsClassify() {
         <H2>Build</H2>
         <CopyBlock command="cargo build --release                      # add --features cuda for GPU" />
         <P>
-          <IC>--model-variant {"{"}multi,small,base{"}"}</IC> picks between{" "}
+          <IC>--model-variant {"{"}multi,small,base,decide,decide-multi,decide-1b{"}"}</IC> picks between{" "}
           <IC>fastino/gliner2.5-multi-v1</IC> (default, 205M, all languages),{" "}
           <IC>fastino/gliner2.5-small-v1</IC> and <IC>fastino/gliner2.5-base-v1</IC> (smaller,
-          faster, English-leaning). Each downloads automatically into the cache directory on first
-          use.
+          faster, English-leaning), and the <IC>GLiNER2.5-Decide*</IC> checkpoints (decision/verification
+          fine-tunes; <IC>decide-1b</IC> uses a ModernBERT encoder instead of DeBERTa-v2). Each downloads
+          automatically into the cache directory on first use.
         </P>
       </Section>
 

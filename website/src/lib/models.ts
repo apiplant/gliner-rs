@@ -34,6 +34,25 @@ export const ENTITY_MODELS: ModelDef[] = [
     approxSizeMb: 738,
     description: "English-focused, base size.",
   },
+  {
+    key: "decide",
+    label: "gliner2.5-Decide",
+    hfRepo: "fastino/GLiNER2.5-Decide",
+    approxSizeMb: 1856,
+    description: "Decision/verification checkpoint (English), 0.5B params.",
+  },
+  {
+    key: "decide-multi",
+    label: "gliner2.5-multi-Decide",
+    hfRepo: "fastino/GLiNER2.5-multi-Decide",
+    approxSizeMb: 1097,
+    description: "Multilingual decision/verification checkpoint, 0.3B params.",
+  },
+  // decide-1b (fastino/GLiNER2.5-Decide-1B) is deliberately not listed here:
+  // its model.safetensors alone is ~4.5GB, which leaves no headroom under
+  // wasm32's hard 4GiB linear-memory cap once the model's own runtime
+  // buffers are allocated. It works fine on the native CLI (`gliner`,
+  // `gliner-classify`), just not in the browser demo.
 ];
 
 export const PII_MODELS: ModelDef[] = [

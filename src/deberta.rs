@@ -4,7 +4,7 @@
 use candle_core::{DType, Device, Module, Result, Tensor};
 use candle_nn::{embedding, layer_norm, linear, Embedding, LayerNorm, Linear, VarBuilder};
 
-use crate::config::EncoderConfig;
+use crate::config::DebertaConfig;
 
 struct Layer {
     query_proj: Linear,
@@ -60,7 +60,7 @@ fn split_heads(x: &Tensor, num_heads: usize, head_dim: usize) -> Result<Tensor> 
 }
 
 impl DebertaV2 {
-    pub fn load(vb: VarBuilder, cfg: &EncoderConfig) -> Result<Self> {
+    pub fn load(vb: VarBuilder, cfg: &DebertaConfig) -> Result<Self> {
         let h = cfg.hidden_size;
         let eps = cfg.layer_norm_eps;
         let word_embeddings = embedding(cfg.vocab_size, h, vb.pp("embeddings.word_embeddings"))?;

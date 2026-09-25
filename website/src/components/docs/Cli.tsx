@@ -52,7 +52,7 @@ export function DocsCli() {
           <LI><IC>--classify "+aspects=a,b,c"</IC> makes the task multi-label.</LI>
           <LI><IC>--char-split</IC> switches to the character-level splitter for Chinese and Japanese.</LI>
           <LI>
-            <IC>--model-variant {"{"}multi,small,base{"}"}</IC> picks a different GLiNER2.5
+            <IC>--model-variant {"{"}multi,small,base,decide,decide-multi,decide-1b{"}"}</IC> picks a different GLiNER2.5
             checkpoint — see{" "}
             <a href="/docs/classify" class="text-accent hover:text-accent-dim">gliner-classify</a>{" "}
             for what each one is.
@@ -88,7 +88,7 @@ export function DocsCli() {
             { flag: "--spans", meaning: "include character start/end offsets in the output" },
             { flag: "--confidence", meaning: "include per-prediction confidence scores" },
             { flag: "--char-split", meaning: "use the character-level word splitter (CJK text)" },
-            { flag: "--model-variant multi|small|base", meaning: "which GLiNER2.5 checkpoint to resolve by default" },
+            { flag: "--model-variant multi|small|base|decide|decide-multi|decide-1b", meaning: "which GLiNER2.5 checkpoint to resolve by default" },
             { flag: "--model DIR", meaning: "checkpoint directory (see checkpoint resolution)" },
             { flag: "--cuda, --fp16", meaning: "device and precision" },
           ]}

@@ -12,6 +12,9 @@ const VARIANTS: &[VariantDef] = &[
     VariantDef { key: "multi", hf_repo: "fastino/gliner2.5-multi-v1" },
     VariantDef { key: "small", hf_repo: "fastino/gliner2.5-small-v1" },
     VariantDef { key: "base", hf_repo: "fastino/gliner2.5-base-v1" },
+    VariantDef { key: "decide", hf_repo: "fastino/GLiNER2.5-Decide" },
+    VariantDef { key: "decide-multi", hf_repo: "fastino/GLiNER2.5-multi-Decide" },
+    VariantDef { key: "decide-1b", hf_repo: "fastino/GLiNER2.5-Decide-1B" },
 ];
 
 /// Run GLiNER2 (boundary architecture) extraction on a text.
@@ -97,6 +100,9 @@ enum Variant {
     Multi,
     Small,
     Base,
+    Decide,
+    DecideMulti,
+    Decide1b,
 }
 
 impl Variant {
@@ -105,6 +111,9 @@ impl Variant {
             Variant::Multi => "multi",
             Variant::Small => "small",
             Variant::Base => "base",
+            Variant::Decide => "decide",
+            Variant::DecideMulti => "decide-multi",
+            Variant::Decide1b => "decide-1b",
         }
     }
 }
