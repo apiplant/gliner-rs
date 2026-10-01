@@ -16,21 +16,21 @@ license=('Apache-2.0')
 # build links against. It does not pull in a matching toolkit version; the
 # host driver still needs to support the CUDA release this was built
 # against (see packaging/README.md).
-depends=('nvidia-utils')
+depends=('nvidia-utils' 'cuda')
 provides=('gliner-rs')
 conflicts=('gliner-rs')
 # The release archive holding all four binaries and the README. The workflow
 # builds the package before the release exists and drops the archive next to
 # this file, which makepkg picks up instead of downloading; the URL is what
 # makes the PKGBUILD work on its own once the release is published.
-source=("$pkgname-$pkgver-x86_64.tar.gz::$url/releases/download/v$pkgver/gliner-rs-cuda-v$pkgver-x86_64-unknown-linux-gnu.tar.gz")
+source=("$pkgname-$pkgver-x86_64.tar.gz::$url/releases/download/v$pkgver/@ARCHIVE_PREFIX@-v$pkgver-x86_64-unknown-linux-gnu.tar.gz")
 sha256sums=('@SHA_LINUX_X86_64_CUDA@')
 # The release profile already strips symbols, and makepkg's strip pass on an
 # LTO'd binary buys nothing.
 options=('!strip' '!debug')
 
 package() {
-  local src="$srcdir/gliner-rs-cuda-v$pkgver-x86_64-unknown-linux-gnu"
+  local src="$srcdir/@ARCHIVE_PREFIX@-v$pkgver-x86_64-unknown-linux-gnu"
   install -Dm755 "$src/gliner" "$pkgdir/usr/bin/gliner"
   install -Dm755 "$src/gliner-classify" "$pkgdir/usr/bin/gliner-classify"
   install -Dm755 "$src/gliner-pii" "$pkgdir/usr/bin/gliner-pii"
