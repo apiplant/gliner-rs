@@ -163,7 +163,9 @@ jobs:
       - name: Build
         shell: bash
         env:
-          CUDA_COMPUTE_CAP: "75"
+          # 80, not 75: below 8.0 candle-kernels redefines __hmax_nan/__hmin_nan, which the newer
+          # cuda_fp16.h in Arch's CUDA already defines ("function already defined").
+          CUDA_COMPUTE_CAP: "80"
         run: |
           export PATH=/opt/cuda/bin:$PATH CUDA_PATH=/opt/cuda CUDA_HOME=/opt/cuda
           cargo build --release --locked --bins --features cuda
