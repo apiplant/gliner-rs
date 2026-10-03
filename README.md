@@ -141,6 +141,15 @@ first run (see [CLI checkpoint resolution](#cli-checkpoint-resolution)).
 
 ### Library
 
+`cli` (the `gliner*` binaries: clap, rustyline) and `server` (`gliner_rs::server` and `gliner serve`: ntex, tokio) are on by
+default so that `cargo install gliner-rs` gives every binary. As a library you rarely need them; turn them off to skip
+those dependencies (about 115 fewer crates):
+
+```toml
+gliner-rs = { version = "0.3", default-features = false }
+# gliner-rs = { version = "0.3", default-features = false, features = ["server"] }   # + the HTTP server module
+```
+
 ```rust
 use candle_core::{DType, Device};
 use gliner_rs::{ClassificationSpec, ExtractOptions, GLiNER2, Schema};

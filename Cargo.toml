@@ -1,6 +1,6 @@
 [package]
 name = "gliner-rs"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "Rust (candle) inference for GLiNER2 boundary-architecture checkpoints (e.g. fastino/gliner2.5-multi-v1)"
 license = "Apache-2.0"
@@ -16,26 +16,42 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "gliner"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[[bin]]
+name = "gliner-classify"
+path = "src/bin/gliner-classify/main.rs"
+required-features = ["cli"]
+
+[[bin]]
+name = "gliner-pii"
+path = "src/bin/gliner-pii/main.rs"
+required-features = ["cli"]
+
+[[bin]]
+name = "gliner-guardrails"
+path = "src/bin/gliner-guardrails/main.rs"
+required-features = ["cli"]
 
 [dependencies]
 anyhow = "1"
 candle-core = "0.11"
 candle-nn = "0.11"
-clap = { version = "4", features = ["derive", "env"] }
+clap = { version = "4", features = ["derive", "env"], optional = true }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rustyline = { version = "18", features = ["with-file-history", "derive"] }
+rustyline = { version = "18", features = ["with-file-history", "derive"], optional = true }
 ureq = "2"
 # HTTP server (src/server.rs): ntex owns the worker threads and SIGINT/SIGTERM graceful shutdown; tokio
 # supplies only the runtime-agnostic async Mutex/Semaphore used for the serial-execution queue.
-ntex = { version = "3.12", features = ["tokio"] }
-tokio = { version = "1", features = ["sync"] }
+ntex = { version = "3.12", features = ["tokio"], optional = true }
+tokio = { version = "1", features = ["sync"], optional = true }
 # ntex 3.12.3 does not compile against ntex-http 1.3.0 (HeaderMap no longer implements FromIterator,
 # which ntex's h2 client relies on), yet its own requirement is `>=1.2.0`; hold the resolver on 1.2.x.
-ntex-http = "~1.2"
+ntex-http = { version = "~1.2", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
@@ -46,9 +62,20 @@ getrandom = { version = "0.2", features = ["js"] }
 getrandom3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 
 [features]
-default = []
+# `cli` and `server` are on by default so `cargo install` gives the full set of binaries. A library
+# dependency that only wants the model should turn them off, which drops clap, rustyline, ntex and tokio:
+#   gliner-rs = { version = "...", default-features = false }
+default = ["cli", "server"]
+# Command-line parsing and the interactive shell for the `gliner*` binaries.
+cli = ["dep:clap", "dep:rustyline"]
+# The HTTP server (`gliner_rs::server`, `gliner serve`).
+server = ["dep:ntex", "dep:tokio", "dep:ntex-http"]
 cuda = ["candle-core/cuda", "candle-nn/cuda"]
 # ~5-10% faster CPU matmul on machines with Intel MKL installed (e.g. via
 # oneAPI). No effect on systems without it: `intel-mkl-src`'s build script
 # fails at link time if MKL isn't found, so this stays opt-in.
 mkl = ["candle-core/mkl", "candle-nn/mkl"]
+
+[[test]]
+name = "server"
+required-features = ["server"]

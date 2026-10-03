@@ -160,11 +160,17 @@ fn main() -> Result<()> {
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };
     let model_path = model_path::resolve(VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;
 
+    #[cfg(feature = "server")]
     if let Some(Command::Serve { host, port, max_queued }) = args.command {
         // The reported model identity is what the user supplied: the explicit path, else the variant key.
         let model_name = args.model.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| args.model_variant.map_or("multi", Variant::key).to_string());
         let config = gliner_rs::server::ServerConfig { max_queued: max_queued as usize };
         return ntex::rt::System::new("gliner", ntex::rt::DefaultRuntime).block_on(serve(model_path, device, dtype, args.char_split, host, port, model_name, config));
+    }
+
+    #[cfg(not(feature = "server"))]
+    if matches!(args.command, Some(Command::Serve { .. })) {
+        anyhow::bail!("this gliner binary was built without the `server` feature; rebuild with `--features server`");
     }
 
     let text = match args.text {
@@ -201,6 +207,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "server")]
 #[allow(clippy::too_many_arguments)]
 async fn serve(
     model_path: PathBuf,
