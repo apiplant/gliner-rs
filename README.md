@@ -237,6 +237,44 @@ calls, it never changes an answer. `gliner-classify` uses `classification_probab
 for `-f`/multi-text input. As with the rest of the API, one call takes one schema: every text
 in a batch is scored against the same entities/labels/structures, only the documents vary.
 
+## Serving
+
+`gliner serve` loads a checkpoint once and exposes schema extraction over HTTP (an [ntex](https://ntex.rs) server).
+It takes the same model flags as the one-shot CLI (`--model`, `--model-variant`, `--cuda`, `--fp16`, `--threads`,
+`--char-split`):
+
+```bash
+gliner serve                                   # multi-v1 from the cache, on 127.0.0.1:8000
+gliner serve --model-variant small --port 9000 --host 0.0.0.0
+```
+
+`POST /v1/extract` takes one text and a schema written in the CLI's own flag syntax, as JSON arrays:
+
+```bash
+curl -s localhost:8000/v1/extract -H 'Content-Type: application/json' -d '{
+  "text": "Alice works for Acme in Paris.",
+  "entities": ["person", "company", "location"],
+  "relations": ["works_for"],
+  "classify": ["sentiment=positive,negative,neutral"],
+  "spans": true, "confidence": true
+}'
+# {"model":"multi","result":{"entities":{"person":[{"text":"Alice","confidence":0.99,"start":0,"end":5}], ...},
+#   "relation_extraction":{...},"sentiment":{"label":"neutral","confidence":0.97}}}
+```
+
+Fields: `text` (required), at least one of `entities` / `relations` / `json` / `classify` (same syntax as `--entities`,
+`--relations`, `--json`, `--classify`), and optionally `legacy_structures`, `threshold` (0.5), `spans`, `confidence`,
+`overlap` (`flat`, `nested`, `allow`, `longest`), `max_words`, and `model` (must equal the loaded model's name:
+the `--model` path, else the variant key). `GET /health` returns `{"status":"ready","model":...}` without running the
+model.
+
+Requests run one at a time behind a bounded queue (`--max-queued`, default 16): when it is full the server answers
+`429` with `Retry-After: 1`. Bad input (invalid JSON or fields, an empty schema, relations or structures on a
+span-architecture checkpoint, a body over 1 MiB) is `422` with
+`{"error": {"message", "type": "invalid_request_error", "code": 422, "param"}}`; a failed forward is
+`500 {"detail": "internal error"}`. Ctrl-C or SIGTERM stops gracefully: the listener closes and an in-flight
+request finishes first. The server is also a library module, `gliner_rs::server`.
+
 ## CLI checkpoint resolution
 
 `gliner`, `gliner-classify`, `gliner-pii` and `gliner-guardrails` all resolve their model

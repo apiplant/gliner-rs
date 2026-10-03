@@ -28,11 +28,11 @@ const VARIANTS: &[VariantDef] = &[
 struct Args {
     /// Checkpoint directory. Defaults to the `--model-variant` checkpoint in
     /// the gliner-rs cache directory, downloading it there first if needed.
-    #[arg(long, env = "GLINER_MODEL")]
+    #[arg(long, global = true, env = "GLINER_MODEL")]
     model: Option<PathBuf>,
 
     /// Which GLiNER2.5 checkpoint to use when `--model` isn't given. Defaults to `multi`.
-    #[arg(long, value_enum)]
+    #[arg(long, global = true, value_enum)]
     model_variant: Option<Variant>,
 
     /// Input text (reads stdin when omitted).
@@ -76,23 +76,42 @@ struct Args {
     overlap: Option<String>,
 
     /// Use the character-level word splitter (Chinese, Japanese, ...).
-    #[arg(long)]
+    #[arg(long, global = true)]
     char_split: bool,
 
     /// Run on CUDA device 0 (requires the `cuda` feature).
-    #[arg(long)]
+    #[arg(long, global = true)]
     cuda: bool,
 
     /// Run the encoder in float16.
-    #[arg(long)]
+    #[arg(long, global = true)]
     fp16: bool,
 
     /// CPU threads for matmul (candle/rayon). Defaults to min(8, available
     /// parallelism): the model's many small sequential matmuls oversubscribe
     /// and slow down past a handful of threads, so "all cores" is not the
     /// fastest setting. Ignored with --cuda.
-    #[arg(long, env = "GLINER_THREADS")]
+    #[arg(long, global = true, env = "GLINER_THREADS")]
     threads: Option<usize>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    /// Serve schema extraction over HTTP (`POST /v1/extract`, `GET /health`). Uses the global
+    /// `--model`/`--model-variant`/`--cuda`/`--fp16`/`--threads`/`--char-split` flags; runs until
+    /// Ctrl-C/SIGTERM (an in-flight extraction finishes first).
+    Serve {
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 8000)]
+        port: u16,
+        /// Waiting slots on top of the one in-flight request; beyond that requests get 429.
+        #[arg(long, env = "GLINER_MAX_QUEUED", default_value_t = 16, value_parser = clap::value_parser!(u32).range(1..))]
+        max_queued: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -141,6 +160,13 @@ fn main() -> Result<()> {
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };
     let model_path = model_path::resolve(VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;
 
+    if let Some(Command::Serve { host, port, max_queued }) = args.command {
+        // The reported model identity is what the user supplied: the explicit path, else the variant key.
+        let model_name = args.model.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| args.model_variant.map_or("multi", Variant::key).to_string());
+        let config = gliner_rs::server::ServerConfig { max_queued: max_queued as usize };
+        return ntex::rt::System::new("gliner", ntex::rt::DefaultRuntime).block_on(serve(model_path, device, dtype, args.char_split, host, port, model_name, config));
+    }
+
     let text = match args.text {
         Some(t) => t,
         None => std::io::read_to_string(std::io::stdin())?,
@@ -172,5 +198,31 @@ fn main() -> Result<()> {
     let result = model.extract(&text, &schema, &opts)?;
     eprintln!("extracted in {:.2?}", started.elapsed());
     println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn serve(
+    model_path: PathBuf,
+    device: Device,
+    dtype: DType,
+    char_split: bool,
+    host: String,
+    port: u16,
+    model_name: String,
+    config: gliner_rs::server::ServerConfig,
+) -> Result<()> {
+    let started = Instant::now();
+    eprintln!("loading checkpoint: {}", model_path.display());
+    let mut model = GLiNER2::load(&model_path, &device, dtype)?;
+    if char_split {
+        model.set_word_splitter(WordSplitter::Char);
+    }
+    eprintln!("loaded in {:.2?}", started.elapsed());
+    let handle = gliner_rs::server::start_server(&host, port, std::sync::Arc::new(model), model_name, config).await?;
+    eprintln!("gliner serving '{}' on http://{}:{} (/v1/extract, /health)", handle.model_name, host, handle.port);
+    // ntex handles Ctrl-C/SIGTERM: stop accepting, finish in-flight requests, exit.
+    handle.wait().await;
+    eprintln!("gliner stopped");
     Ok(())
 }
