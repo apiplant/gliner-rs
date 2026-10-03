@@ -76,6 +76,42 @@ export function DocsCli() {
       </Section>
 
       <Section>
+        <H2>Serving</H2>
+        <P>
+          <IC>gliner serve</IC> loads a checkpoint once and exposes extraction over HTTP. It takes
+          the same <IC>--model</IC>, <IC>--model-variant</IC>, <IC>--cuda</IC>, <IC>--fp16</IC>,{" "}
+          <IC>--threads</IC> and <IC>--char-split</IC> flags as the one-shot CLI:
+        </P>
+        <CopyBlock command={`gliner serve                                        # multi-v1 from the cache, 127.0.0.1:8000\ngliner serve --model-variant small --port 9000 --host 0.0.0.0`} />
+        <P>
+          <IC>POST /v1/extract</IC> takes one text and a schema written in the CLI's flag syntax,
+          as JSON arrays. At least one of <IC>entities</IC>, <IC>relations</IC>, <IC>json</IC>,{" "}
+          <IC>classify</IC> is required; <IC>legacy_structures</IC>, <IC>threshold</IC>,{" "}
+          <IC>spans</IC>, <IC>confidence</IC>, <IC>overlap</IC>, <IC>max_words</IC> and{" "}
+          <IC>model</IC> are optional (a <IC>model</IC> must equal the loaded model's name: the{" "}
+          <IC>--model</IC> path, else the variant key):
+        </P>
+        <CopyBlock command={`curl -s localhost:8000/v1/extract -H 'Content-Type: application/json' -d '{\n  "text": "Alice works for Acme in Paris.",\n  "entities": ["person", "company", "location"],\n  "relations": ["works_for"],\n  "classify": ["sentiment=positive,negative,neutral"],\n  "spans": true, "confidence": true\n}'`} />
+        <P>
+          The answer is <IC>{"{\"model\": ..., \"result\": ...}"}</IC>, where{" "}
+          <IC>result</IC> is exactly what the CLI prints. <IC>GET /health</IC> reports readiness
+          without running the model. Requests run one at a time behind a bounded queue (
+          <IC>--max-queued</IC>, default 16): when it is full the server answers <IC>429</IC> with{" "}
+          <IC>Retry-After: 1</IC>. Bad input (invalid JSON or fields, an empty schema, relations or
+          structures on a span-architecture checkpoint, a body over 1 MiB) is a <IC>422</IC> with
+          an <IC>error</IC> envelope, and a failed forward is a <IC>500</IC>. Ctrl-C or SIGTERM
+          stops gracefully: an in-flight request finishes first.
+        </P>
+        <FlagTable
+          rows={[
+            { flag: "gliner serve", meaning: "start the server (POST /v1/extract, GET /health)" },
+            { flag: "--host ADDR, --port N", meaning: "bind address (127.0.0.1) and port (8000)" },
+            { flag: "--max-queued N  (GLINER_MAX_QUEUED)", meaning: "waiting slots on top of the in-flight request (16); beyond that, 429" },
+          ]}
+        />
+      </Section>
+
+      <Section>
         <H2>Flags</H2>
         <FlagTable
           rows={[
@@ -91,6 +127,7 @@ export function DocsCli() {
             { flag: "--model-variant multi|small|base|decide|decide-multi|decide-1b", meaning: "which GLiNER2.5 checkpoint to resolve by default" },
             { flag: "--model DIR", meaning: "checkpoint directory (see checkpoint resolution)" },
             { flag: "--cuda, --fp16", meaning: "device and precision" },
+            { flag: "serve [--host ADDR] [--port N] [--max-queued N]", meaning: "serve extraction over HTTP instead of running once — see Serving" },
           ]}
         />
       </Section>
