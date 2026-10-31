@@ -6,7 +6,7 @@ use candle_core::{DType, Device};
 use clap::Parser;
 use gliner_rs::cli_schema::{build_schema, CliSchemaArgs};
 use gliner_rs::model_path::{self, VariantDef};
-use gliner_rs::{ExtractOptions, GLiNER2, OverlapPolicy, WordSplitter};
+use gliner_rs::{ExtractOptions, GLiNER2, MetalWeightLoading, OverlapPolicy, RustLoadOptions, WordSplitter};
 
 const VARIANTS: &[VariantDef] = &[
     VariantDef { key: "multi", hf_repo: "fastino/gliner2.5-multi-v1" },
@@ -86,6 +86,14 @@ struct Args {
     /// Run on Metal device 0 (requires the `metal` feature; no CPU fallback).
     #[arg(long, global = true, conflicts_with = "cuda")]
     metal: bool,
+
+    /// Disable streamed Metal weight loading and use the original mmap loader.
+    #[arg(long, global = true, requires = "metal")]
+    metal_mmap: bool,
+
+    /// Disable Metal attention allocation/index optimizations.
+    #[arg(long, global = true, requires = "metal")]
+    metal_original_attention: bool,
 
     /// Run the encoder in float16.
     #[arg(long, global = true)]
@@ -168,6 +176,10 @@ fn main() -> Result<()> {
         Device::Cpu
     };
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };
+    let load_options = RustLoadOptions {
+        metal_weight_loading: if args.metal_mmap { MetalWeightLoading::Mmap } else { MetalWeightLoading::Stream },
+        metal_attention_optimizations: !args.metal_original_attention,
+    };
     let model_path = model_path::resolve(VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;
 
     #[cfg(feature = "server")]
@@ -175,7 +187,7 @@ fn main() -> Result<()> {
         // The reported model identity is what the user supplied: the explicit path, else the variant key.
         let model_name = args.model.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| args.model_variant.map_or("multi", Variant::key).to_string());
         let config = gliner_rs::server::ServerConfig { max_queued: max_queued as usize };
-        return ntex::rt::System::new("gliner", ntex::rt::DefaultRuntime).block_on(serve(model_path, device, dtype, args.char_split, host, port, model_name, config));
+        return ntex::rt::System::new("gliner", ntex::rt::DefaultRuntime).block_on(serve(model_path, device, dtype, load_options, args.char_split, host, port, model_name, config));
     }
 
     #[cfg(not(feature = "server"))]
@@ -197,7 +209,7 @@ fn main() -> Result<()> {
     })?;
 
     let started = Instant::now();
-    let mut model = GLiNER2::load(&model_path, &device, dtype)?;
+    let mut model = GLiNER2::load_with_options(&model_path, &device, dtype, load_options)?;
     if args.char_split {
         model.set_word_splitter(WordSplitter::Char);
     }
@@ -223,6 +235,7 @@ async fn serve(
     model_path: PathBuf,
     device: Device,
     dtype: DType,
+    load_options: RustLoadOptions,
     char_split: bool,
     host: String,
     port: u16,
@@ -231,7 +244,7 @@ async fn serve(
 ) -> Result<()> {
     let started = Instant::now();
     eprintln!("loading checkpoint: {}", model_path.display());
-    let mut model = GLiNER2::load(&model_path, &device, dtype)?;
+    let mut model = GLiNER2::load_with_options(&model_path, &device, dtype, load_options)?;
     if char_split {
         model.set_word_splitter(WordSplitter::Char);
     }

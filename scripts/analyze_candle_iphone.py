@@ -40,7 +40,13 @@ def main():
     p.add_argument('--parity-reference', type=Path, required=True)
     p.add_argument('--benchmark-reference-dir', type=Path, required=True)
     p.add_argument('--output', type=Path)
+    p.add_argument('--tag', default='', help='Artifact tag used by the device runner')
+    p.add_argument('--expect-metal-loader', choices=['stream', 'mmap'])
+    p.add_argument('--expect-original-attention', choices=['yes', 'no'])
+    p.add_argument('--expect-load-pool', choices=['on', 'off'])
     args = p.parse_args()
+    if args.tag and not all(c.isalnum() or c in '_-' for c in args.tag): p.error('Invalid artifact tag')
+    tag = f'-{args.tag}' if args.tag else ''
     requests_file = ROOT / 'docs/benchmarks/rust-vs-mlx.json'
     requests = json.loads(requests_file.read_text())['requests']
     parity_gold = readlines(args.parity_reference)
@@ -60,7 +66,7 @@ def main():
     benchmark_values = {}
     for engine in ('mlx','candle'):
         engine_data = {'parity': {}, 'trials': [], 'cases': []}
-        parity_prefix = args.artifacts / f'iphone-{args.variant}-{engine}-parity-trial1'
+        parity_prefix = args.artifacts / f'iphone-{args.variant}-{engine}-parity-trial1{tag}'
         parity_file = Path(str(parity_prefix) + '.results.jsonl')
         parity_summary = Path(str(parity_prefix) + '.summary.json')
         values = readlines(parity_file)
@@ -68,6 +74,12 @@ def main():
         if parity_meta.get('status') != 'passed' or parity_meta.get('backend') != engine or parity_meta.get('precision') != 'float32' or parity_meta.get('caseCount') != 28:
             raise ValueError(f'{parity_summary}: incorrect parity metadata')
         if len(values) != 28: raise ValueError(f'{parity_file}: expected 28 results')
+        if engine == 'candle' and args.expect_metal_loader is not None and parity_meta.get('candleMetalLoader') != args.expect_metal_loader:
+            raise ValueError('parity Candle loader mismatch')
+        if engine == 'candle' and args.expect_original_attention is not None and parity_meta.get('candleOriginalAttention') != (args.expect_original_attention == 'yes'):
+            raise ValueError('parity Candle attention mismatch')
+        if engine == 'candle' and args.expect_load_pool is not None and parity_meta.get('candleLoadAutoreleasePool') != (args.expect_load_pool == 'on'):
+            raise ValueError('parity Candle load pool mismatch')
         positive(parity_meta.get('loadSeconds'), 'parity loadSeconds')
         positive(parity_meta.get('peakResidentBytes'), 'parity peakResidentBytes')
         parity_values[engine] = values
@@ -77,12 +89,18 @@ def main():
             'results_sha256': sha(parity_file), 'summary_sha256': sha(parity_summary)}
         pooled = [[] for _ in requests]
         for trial in range(1,4):
-            prefix = args.artifacts / f'iphone-{args.variant}-{engine}-benchmark-trial{trial}'
+            prefix = args.artifacts / f'iphone-{args.variant}-{engine}-benchmark-trial{trial}{tag}'
             results_path = Path(str(prefix) + '.results.jsonl'); summary_path = Path(str(prefix) + '.summary.json')
             rows = readlines(results_path); summary = json.loads(summary_path.read_text())
             benchmark_values[(engine, trial)] = {(row['caseIndex'], row['iteration']): row['result'] for row in rows}
             if summary.get('status') != 'passed' or summary.get('backend') != engine or summary.get('precision') != 'float32' or len(rows) != 105:
                 raise ValueError(f'{prefix}: incomplete or incorrect trial')
+            if engine == 'candle' and args.expect_metal_loader is not None and summary.get('candleMetalLoader') != args.expect_metal_loader:
+                raise ValueError(f'{prefix}: Candle loader mismatch')
+            if engine == 'candle' and args.expect_original_attention is not None and summary.get('candleOriginalAttention') != (args.expect_original_attention == 'yes'):
+                raise ValueError(f'{prefix}: Candle attention mismatch')
+            if engine == 'candle' and args.expect_load_pool is not None and summary.get('candleLoadAutoreleasePool') != (args.expect_load_pool == 'on'):
+                raise ValueError(f'{prefix}: Candle load pool mismatch')
             positive(summary.get('loadSeconds'), 'loadSeconds')
             positive(summary.get('peakResidentBytes'), 'peakResidentBytes')
             seen = set(); comparisons = []; per_case = [[] for _ in requests]
@@ -98,7 +116,8 @@ def main():
                 if iteration >= 5:
                     per_case[case].append(row['seconds'] * 1000); pooled[case].append(row['seconds'] * 1000)
             engine_data['trials'].append({'trial': trial, 'runID': summary['runID'], 'load_seconds': summary['loadSeconds'],
-                'peak_resident_bytes': summary.get('peakResidentBytes'), 'strict': sum(x[0] for x in comparisons),
+                'peak_resident_bytes': summary.get('peakResidentBytes'), 'peak_physical_footprint_bytes': summary.get('peakPhysicalFootprintBytes'), 'memory_points': summary.get('memoryPoints'),
+                'metal_loader': summary.get('candleMetalLoader'), 'original_attention': summary.get('candleOriginalAttention'), 'load_autorelease_pool': summary.get('candleLoadAutoreleasePool'), 'strict': sum(x[0] for x in comparisons),
                 'near_tie_reorders': sum(x[2] for x in comparisons), 'max_confidence_delta': max(x[1] or 0 for x in comparisons),
                 'results_sha256': sha(results_path), 'summary_sha256': sha(summary_path),
                 'case_medians_ms': [statistics.median(v) for v in per_case]})
@@ -115,7 +134,7 @@ def main():
                 'near_tie_reorders': sum(x[2] for x in values),
                 'max_confidence_delta': max((x[1] or 0 for x in values), default=0)}
     result['direct_backend_comparison'] = {'parity': direct_summary(direct_parity), 'benchmark': direct_summary(direct_bench)}
-    output = args.output or args.artifacts / f'iphone-{args.variant}-candle-vs-mlx.json'
+    output = args.output or args.artifacts / f'iphone-{args.variant}-candle-vs-mlx{tag}.json'
     output.write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n')
     print(json.dumps({'output': str(output), 'engines': {k: {'parity': v['parity'], 'cases': v['cases']} for k,v in result['engines'].items()}}, indent=2))
 

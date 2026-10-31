@@ -10,7 +10,7 @@ CANDLE_IMPLEMENTATION_REF = "cd7b50f6ac7b5b395b92c373397ef19368f03a55"
 REPOSITORY_URL = "https://github.com/apiplant/gliner-rs"
 
 
-def refresh_iphone_evidence(root):
+def refresh_iphone_evidence(root, optimization_tag=None):
     """Export measured device samples to the same chart schema as the Mac run."""
     try:
         from scripts import benchmark_apple as apple
@@ -37,18 +37,37 @@ def refresh_iphone_evidence(root):
                    "candle_configuration": {"dtype": "F32", "device": "Metal", "mlx_runtime_initialized": False},
                    "limits": "Both engines linked in one SwiftUI harness; Rust includes JSON request/result bridge overhead; no energy or thermal instrumentation; not a cross-device latency comparison"},
         "models": [], "requests": requests, "runs": [], "comparisons": [], "direct_gpu_comparisons": []}
-    provenance = json.loads((root / ".models/iphone-candle-provenance.json").read_text())
+    provenance_name = f"iphone-candle-provenance-{optimization_tag}.json" if optimization_tag else "iphone-candle-provenance.json"
+    provenance = json.loads((root / ".models" / provenance_name).read_text())
     # Device container URLs and signing/account details are unnecessary evidence.
     report["provenance"] = {k: provenance[k] for k in ("build", "sha256", "note")}
     for variant in ("small", "multi"):
         manifest = root / f".models/gliner2.5-{variant}-v1/checkpoint.json"
         report["models"].append({"variant": variant, "checkpoint": json.loads(manifest.read_text()),
                                  "manifest_sha256": apple.file_sha(manifest)})
-        aggregate = json.loads((root / f".models/iphone-{variant}-candle-vs-mlx.json").read_text())
+        aggregate_suffix = f"-{optimization_tag}-optimized" if optimization_tag else ""
+        aggregate = json.loads((root / f".models/iphone-{variant}-candle-vs-mlx{aggregate_suffix}.json").read_text())
         paired_outputs = {}
-        for engine in ("candle", "mlx"):
+        configurations = [("candle_metal", "candle", None), ("mlx_metal", "mlx", None)]
+        if optimization_tag:
+            configurations = [("candle_metal_baseline", "candle", "original"),
+                              ("candle_metal", "candle", "optimized"), ("mlx_metal", "mlx", "mlx")]
+        for backend, engine, configuration in configurations:
+            if optimization_tag:
+                parity_prefix = root / f".models/iphone-{variant}-{engine}-parity-trial1-{optimization_tag}-{configuration}"
+                parity_path = Path(str(parity_prefix) + ".summary.json")
+                parity = json.loads(parity_path.read_text())
+                if parity.get("status") != "passed" or parity.get("caseCount") != 28 or parity.get("backend") != engine:
+                    raise ValueError(f"Invalid long-suite device summary: {parity_path}")
+                report.setdefault("long_suite_memory", {}).setdefault(variant, {})[backend] = {
+                    "cases": 28, "runs": 1, "run_id": parity["runID"],
+                    "peak_process_rss_bytes": parity["peakResidentBytes"],
+                    "peak_physical_footprint_bytes": parity["peakPhysicalFootprintBytes"],
+                    "memory_points": parity.get("memoryPoints"),
+                    "summary_sha256": apple.file_sha(parity_path)}
             for trial in range(1, 4):
-                prefix = root / f".models/iphone-{variant}-{engine}-benchmark-trial{trial}"
+                suffix = f"-{optimization_tag}-{configuration}" if optimization_tag else ""
+                prefix = root / f".models/iphone-{variant}-{engine}-benchmark-trial{trial}{suffix}"
                 summary_path, result_path = Path(str(prefix) + ".summary.json"), Path(str(prefix) + ".results.jsonl")
                 summary = json.loads(summary_path.read_text())
                 records = [json.loads(line) for line in result_path.read_text().splitlines() if line.strip()]
@@ -57,6 +76,10 @@ def refresh_iphone_evidence(root):
                     raise ValueError(f"Incorrect device metadata: {prefix}")
                 if engine == "mlx" and summary.get("tf32Environment") != "0":
                     raise ValueError("Device MLX run did not explicitly disable TF32")
+                if optimization_tag and engine == "candle":
+                    expected_loader = "mmap" if configuration == "original" else "stream"
+                    if summary.get("candleMetalLoader") != expected_loader or summary.get("candleOriginalAttention") != (configuration == "original"):
+                        raise ValueError(f"Wrong Candle optimization settings: {prefix}")
                 for case_index, request in enumerate(requests):
                     rows = sorted((r for r in records if r["caseIndex"] == case_index), key=lambda r: r["iteration"])
                     if [r["iteration"] for r in rows] != list(range(35)):
@@ -78,27 +101,40 @@ def refresh_iphone_evidence(root):
                     parsed = {"run_ms": values, "load_ms": summary["loadSeconds"] * 1000,
                               "timing_resolution_ms": 0.000001}
                     result = {"model": variant, "request": request["name"], "trial": trial,
-                              "backend": engine + "_metal", **apple.timing_report(parsed, 5),
+                              "backend": backend, **apple.timing_report(parsed, 5),
                               "peak_process_rss_bytes": summary["peakResidentBytes"], "quality": quality,
+                              "peak_physical_footprint_bytes": summary.get("peakPhysicalFootprintBytes"),
+                              "memory_points": summary.get("memoryPoints"),
                               "summary_sha256": apple.file_sha(summary_path), "results_sha256": apple.file_sha(result_path),
                               "run_id": summary["runID"], "representative_output": outputs[0]}
                     report["runs"].append(result)
-                    paired_outputs[(engine, trial, case_index)] = outputs
+                    paired_outputs[(backend, trial, case_index)] = outputs
         for trial in range(1, 4):
             for case_index, request in enumerate(requests):
-                pair = apple.compare_values(paired_outputs[("candle", trial, case_index)],
-                                            paired_outputs[("mlx", trial, case_index)], tolerance=1e-4)
-                if pair.errors:
-                    raise ValueError(f"Direct GPU-to-GPU parity failed: {variant}/{trial}/{case_index}")
-                report["direct_gpu_comparisons"].append({"model": variant, "request": request["name"],
-                    "trial": trial, "runs_per_backend": 35, "strict": True, "max_confidence_delta": pair.max_confidence_delta})
+                pairs = [("candle_metal", "mlx_metal")]
+                if optimization_tag:
+                    pairs.append(("candle_metal_baseline", "candle_metal"))
+                for reference_backend, candidate_backend in pairs:
+                    pair = apple.compare_values(paired_outputs[(reference_backend, trial, case_index)],
+                                                paired_outputs[(candidate_backend, trial, case_index)], tolerance=1e-4)
+                    if pair.errors:
+                        raise ValueError(f"Direct GPU-to-GPU parity failed: {variant}/{trial}/{case_index}")
+                    report["direct_gpu_comparisons"].append({"model": variant, "request": request["name"],
+                        "reference_backend": reference_backend, "candidate_backend": candidate_backend,
+                        "trial": trial, "runs_per_backend": 35, "strict": True, "max_confidence_delta": pair.max_confidence_delta})
         report.setdefault("validation", {})[variant] = {"engines": {k: v["parity"] for k,v in aggregate["engines"].items()},
                                                        "direct_gpu": aggregate["direct_backend_comparison"]}
     for request in requests:
         request.update(whitespace_word_count=len(request["text"].split()),
                        request_sha256=apple.canonical_sha({k: request[k] for k in ("name", "text", "entities")}))
     report["comparisons"] = summarize(report)
-    destination = root / "docs/benchmarks/candle-vs-mlx-iphone.json"
+    if optimization_tag:
+        report["method"].update(backend_order=[["original", "optimized", "mlx"], ["optimized", "mlx", "original"], ["mlx", "original", "optimized"]],
+            physical_footprint_method="task_vm_info.ledger_phys_footprint_peak, captured outside request timers; CPU and GPU footprint on Apple Silicon",
+            optimization_configurations={"candle_metal_baseline": {"loader":"mmap", "attention":"original"},
+                                         "candle_metal": {"loader":"stream", "attention":"optimized"}})
+    filename = "candle-optimized-iphone.json" if optimization_tag else "candle-vs-mlx-iphone.json"
+    destination = root / "docs/benchmarks" / filename
     destination.write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
     print(f"Device evidence: {destination}")
 
@@ -117,7 +153,7 @@ def build(root, destination):
         "profiles": profiles,
         "implementation": implementation,
         "validation": {
-            "note": "Original MLX-only validation and device trace runs; current comparison tests are in metalComparison.tests.",
+            "note": "Original MLX-only validation and device trace runs; current optimization tests are in optimization.tests.",
             "swiftTests": 32, "pythonTests": 36, "inputCasesPerTokenizer": 92,
             "coreCases": 21, "advancedCases": 7,
             "phoneSmall": {"cases": 28, "strictCases": 28, "encoderValues": 1024128,
@@ -154,6 +190,23 @@ def build(root, destination):
         for target in ("mac", "iphone"):
             evidence = root / f"docs/benchmarks/candle-vs-mlx-{target}.json"
             data["metalComparison"][target] = json.loads(evidence.read_text()) if evidence.is_file() else None
+    optimization = root / "docs/benchmarks/candle-metal-optimization.json"
+    if optimization.is_file():
+        data["optimization"] = json.loads(optimization.read_text())
+        for target in ("mac", "iphone"):
+            data["optimization"][target] = json.loads((root / f"docs/benchmarks/candle-optimized-{target}.json").read_text())
+    # Local build paths are diagnostics, not portable reproduction commands.
+    # Preserve the committed evidence and hashes; normalize paths only in HTML.
+    def portable_paths(value):
+        if isinstance(value, str):
+            return value.replace(str(root), ".")
+        if isinstance(value, list):
+            return [portable_paths(item) for item in value]
+        if isinstance(value, dict):
+            return {key: portable_paths(item) for key, item in value.items()}
+        return value
+    data = portable_paths(data)
+    data["provenance"]["pathNormalization"] = "Repository-root absolute paths are rendered relative in this HTML; committed evidence remains unchanged."
     template = (root / "scripts/templates/apple_report.html").read_text()
     # Keep source links usable when the standalone file is served by the website
     # or downloaded outside the repository. Pin them to the measured implementation.
@@ -172,8 +225,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--refresh-iphone-evidence", action="store_true", help="Export fresh local device artifacts before building HTML")
+    parser.add_argument("--optimization-tag", help="Export the balanced original/optimized/MLX iPhone run with this artifact tag")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     if args.refresh_iphone_evidence:
         refresh_iphone_evidence(repo)
+    if args.optimization_tag:
+        refresh_iphone_evidence(repo, args.optimization_tag)
     build(repo, args.output or repo / "reports/gliner-apple-report.html")

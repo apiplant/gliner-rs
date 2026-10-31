@@ -8,6 +8,10 @@ extern "C" {
    failure and writes an owned UTF-8 error string when error is non-NULL. */
 typedef struct gliner_candle_model gliner_candle_model;
 gliner_candle_model *gliner_candle_open(const char *checkpoint_directory, char **error);
+/* Same ownership and Metal/F32 guarantees. Flags: bit 0 selects mmap instead
+   of streaming; bit 1 selects original rather than optimized Metal attention.
+   Values outside 0..3 are rejected. The original entry point uses 0. */
+gliner_candle_model *gliner_candle_open_with_options(const char *checkpoint_directory, int loader, char **error);
 /* request is a NUL-terminated UTF-8 JSON request. The model must be a valid,
    live handle created by open, with no concurrent operations or close. Returns
    owned UTF-8 JSON or NULL on error. */

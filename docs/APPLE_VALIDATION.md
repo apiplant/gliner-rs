@@ -1,42 +1,43 @@
-# Port Apple: implementazione e verifiche
+# Apple implementation and validation
 
-31 ottobre 2026. Riferimento Rust upstream:
-`c5c65948478d687190f9c83fcc51d3afa15b5f2a`.
+## Current Candle Metal optimization comparison
 
-## Confronto Rust/Candle Metal e Swift/MLX Metal
+The Rust Metal backend uses a streaming loader (a bounded 16 MiB staging buffer
+feeding Private storage on macOS, direct Shared storage on iOS) and a fused F32
+relative-attention score epilogue. Attention remains dense O(T²), not
+FlashAttention. `--metal-mmap` and `--metal-original-attention` independently
+restore the original paths; [CANDLE_METAL.md](CANDLE_METAL.md) documents Rust,
+FFI and demo controls.
 
-È disponibile anche il backend Rust Metal: feature Cargo `metal`, flag CLI
-`--metal` e libreria statica con interfaccia C per la demo iPhone/macOS.
-Il modello Rust viene riutilizzato; l'unica correzione numerica necessaria evita
-un temporaneo F64 nella maschera DeBERTa. Dettagli in [CANDLE_METAL.md](CANDLE_METAL.md).
+Release comparisons on the M3 Pro and iPhone 17 Pro used Small and Multi, three
+short requests, three trials, five warm-ups and 30 measured calls. Each device
+recorded 54 runs and 1,890 calls across original Candle, optimized Candle
+and MLX. The harness verifies exact inputs, each output against fresh CPU
+references, and direct GPU comparisons. Direct 28-case GPU comparisons pass for
+both checkpoints; against CPU, Multi has one bounded near-tie ordering exception.
+Confidence tolerance is `1e-4`; encoder tolerance is `1e-3`.
 
-Le build Release dei due motori producono output equivalenti su **28/28 casi
-Small e 28/28 Multi**, sia su Mac sia su iPhone, senza eccezioni d'ordine nel
-confronto diretto. Rispetto alla CPU, Multi conserva una sola eccezione near-tie
-Berlin: 27/28 strict e 28/28 con la regola già documentata. La tolleranza sulle
-confidenze resta `1e-4`; le tracce encoder Candle sono state verificate su Mac,
-non esportate dall'interfaccia C su iPhone.
+Original-to-optimized Candle warm median latency decreased 18–31% on Mac and
+13–31% on iPhone. MLX remained 7–18% lower than optimized Candle on Mac and
+18–23% lower on iPhone. Peak RSS is not physical RAM: file mappings and
+Private/Shared allocations have different accounting. Short-request Mac peak
+physical footprint was 0.3–2.7% higher after optimization; iPhone Multi was
+approximately unchanged. A separate single mixed long-suite run showed 26%/21%
+lower peak physical footprint on Mac and 28%/21% lower on iPhone for
+Small/Multi, respectively. These measurements are workload-specific, and RSS
+and physical footprint must not be added.
 
-Benchmark: tre richieste italiane, Small e Multi, tre trial per motore, cinque
-warm-up e trenta misure per richiesta. Sono 1.260 esecuzioni GPU e 630 coppie
-di output strict per ciascun dispositivo. Sul Mac M3 Pro, MLX riduce la mediana
-di circa 23–35%; sull'iPhone 17 Pro di circa 30–43%. Il picco RSS del processo,
-incluso il caricamento, è circa dimezzato. Questo non dimostra un dimezzamento
-permanente della memoria residente. Candle carica il modello più rapidamente
-nei processi con cache di sistema/shader già calde.
+Current checks include 23 Rust CPU tests, targeted GPU tests, 2 FFI tests and
+45 Python tests. The previous Swift run passed 32 XCTest. Methods, p95, samples,
+limits and hashes are in the [HTML report](../reports/gliner-apple-report.html),
+[Mac data](benchmarks/candle-optimized-mac.json),
+[iPhone data](benchmarks/candle-optimized-iphone.json) and
+[optimization summary](benchmarks/candle-metal-optimization.json). Earlier
+CPU/GPU and MLX-only results below are historical, not a Candle Metal comparison.
 
-La condizione concordata per rimuovere Swift richiede output, prestazioni e
-memoria comparabili. Le misure non la soddisfano: il backend Swift/MLX rimane.
-Passano 17 test Rust, 2 test FFI e 41 test Python. Il precedente run XCTest
-rimane di 32 test senza skip.
+## Historical Swift/MLX validation
 
-Metodi, p95, campioni, limiti e hash sono nel
-[report HTML](../reports/gliner-apple-report.html) e nei dati
-[Mac](benchmarks/candle-vs-mlx-mac.json),
-[iPhone](benchmarks/candle-vs-mlx-iphone.json) e
-[validazione](benchmarks/candle-metal-evaluation.json).
-Le sezioni seguenti conservano anche le verifiche MLX precedenti; il confronto
-CPU/GPU storico non è un confronto Candle Metal contro MLX Metal.
+The following sections document the earlier Swift/MLX validation and measurements.
 
 ## Cosa è disponibile
 

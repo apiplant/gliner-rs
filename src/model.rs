@@ -10,6 +10,7 @@ use serde_json::{json, Map, Value};
 use tokenizers::Tokenizer;
 
 use crate::chunking::ChunkOptions;
+use crate::weights::{checkpoint_var_builder, RustLoadOptions};
 use crate::config::{
     load_configs, load_configs_str, load_span_configs, load_span_configs_str, sniff_architecture, Architecture,
     EncoderConfig, ExtractorConfig, SpanConfig,
@@ -40,10 +41,18 @@ pub enum GLiNER2 {
 
 impl GLiNER2 {
     pub fn load(model_dir: impl AsRef<Path>, device: &Device, dtype: DType) -> Result<Self> {
+        Self::load_with_options(model_dir, device, dtype, RustLoadOptions::default())
+    }
+
+    /// Load with an explicit Metal checkpoint-loading policy. CPU/CUDA retain
+    /// their original loading path; inference math is unaffected by this option.
+    pub fn load_with_options(
+        model_dir: impl AsRef<Path>, device: &Device, dtype: DType, options: RustLoadOptions,
+    ) -> Result<Self> {
         let dir = model_dir.as_ref();
         match sniff_architecture(dir)? {
-            Architecture::Boundary => Ok(Self::Boundary(BoundaryModel::load(dir, device, dtype)?)),
-            Architecture::Span => Ok(Self::Span(SpanModel::load(dir, device, dtype)?)),
+            Architecture::Boundary => Ok(Self::Boundary(BoundaryModel::load_with_options(dir, device, dtype, options)?)),
+            Architecture::Span => Ok(Self::Span(SpanModel::load_with_options(dir, device, dtype, options)?)),
         }
     }
 
@@ -282,9 +291,9 @@ enum Encoder {
 }
 
 impl Encoder {
-    fn load(vb: VarBuilder, cfg: &EncoderConfig) -> Result<Self> {
+    fn load(vb: VarBuilder, cfg: &EncoderConfig, options: RustLoadOptions) -> Result<Self> {
         match cfg {
-            EncoderConfig::Deberta(c) => Ok(Encoder::Deberta(DebertaV2::load(vb, c).context("loading DeBERTa-v2 encoder")?)),
+            EncoderConfig::Deberta(c) => Ok(Encoder::Deberta(DebertaV2::load_with_attention_optimizations(vb, c, options.metal_attention_optimizations).context("loading DeBERTa-v2 encoder")?)),
             EncoderConfig::ModernBert(c) => Ok(Encoder::ModernBert(ModernBert::load(vb, c).context("loading ModernBERT encoder")?)),
         }
     }
@@ -385,17 +394,21 @@ impl BoundaryModel {
     /// `model.safetensors` from `model_dir`. `dtype` applies to the encoder;
     /// the heads always run in float32.
     pub fn load(model_dir: impl AsRef<Path>, device: &Device, dtype: DType) -> Result<Self> {
+        Self::load_with_options(model_dir, device, dtype, RustLoadOptions::default())
+    }
+
+    pub fn load_with_options(
+        model_dir: impl AsRef<Path>, device: &Device, dtype: DType, options: RustLoadOptions,
+    ) -> Result<Self> {
         let dir = model_dir.as_ref();
         let (config, encoder_config) = load_configs(dir)?;
         let tokenizer = Tokenizer::from_file(dir.join("tokenizer.json"))
             .map_err(|e| anyhow!("loading tokenizer.json: {e}"))?;
         let weights = dir.join("model.safetensors");
-        // SAFETY: the checkpoint file must not be modified while mapped.
-        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights], dtype, device) }
-            .with_context(|| format!("mapping {}", weights.display()))?;
+        let vb = checkpoint_var_builder(&weights, dtype, device, options)?;
         let head_vb = vb.clone().set_dtype(DType::F32);
 
-        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device, options)
     }
 
     /// Same as [`Self::load`] but from in-memory file contents (see
@@ -414,7 +427,7 @@ impl BoundaryModel {
         let tensors = crate::safetensors32::load_buffer(weights, device).context("loading model.safetensors")?;
         let vb = VarBuilder::from_tensors(tensors, dtype, device);
         let head_vb = vb.clone().set_dtype(DType::F32);
-        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device, RustLoadOptions::default())
     }
 
     fn from_parts(
@@ -424,11 +437,12 @@ impl BoundaryModel {
         vb: VarBuilder,
         head_vb: VarBuilder,
         device: &Device,
+        options: RustLoadOptions,
     ) -> Result<Self> {
         let hidden = encoder_config.hidden_size();
         let cfg = &config.boundary_head;
 
-        let encoder = Encoder::load(vb.pp("encoder"), &encoder_config).context("loading encoder")?;
+        let encoder = Encoder::load(vb.pp("encoder"), &encoder_config, options).context("loading encoder")?;
         let head = BoundaryHead::load(head_vb.pp("boundary_head"), hidden, cfg).context("loading boundary head")?;
         let classifier = Classifier::load(head_vb.pp("classifier"), hidden).context("loading classifier")?;
         let relation_scorer = if cfg.enable_relations {
@@ -1347,15 +1361,19 @@ pub struct SpanModel {
 
 impl SpanModel {
     pub fn load(model_dir: &Path, device: &Device, dtype: DType) -> Result<Self> {
+        Self::load_with_options(model_dir, device, dtype, RustLoadOptions::default())
+    }
+
+    pub fn load_with_options(
+        model_dir: &Path, device: &Device, dtype: DType, options: RustLoadOptions,
+    ) -> Result<Self> {
         let (config, encoder_config) = load_span_configs(model_dir)?;
         let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json"))
             .map_err(|e| anyhow!("loading tokenizer.json: {e}"))?;
         let weights = model_dir.join("model.safetensors");
-        // SAFETY: the checkpoint file must not be modified while mapped.
-        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights], dtype, device) }
-            .with_context(|| format!("mapping {}", weights.display()))?;
+        let vb = checkpoint_var_builder(&weights, dtype, device, options)?;
         let head_vb = vb.clone().set_dtype(DType::F32);
-        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device, options)
     }
 
     /// Same as [`Self::load`] but from in-memory file contents (see
@@ -1374,7 +1392,7 @@ impl SpanModel {
         let tensors = crate::safetensors32::load_buffer(weights, device).context("loading model.safetensors")?;
         let vb = VarBuilder::from_tensors(tensors, dtype, device);
         let head_vb = vb.clone().set_dtype(DType::F32);
-        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device)
+        Self::from_parts(config, encoder_config, tokenizer, vb, head_vb, device, RustLoadOptions::default())
     }
 
     fn from_parts(
@@ -1384,10 +1402,11 @@ impl SpanModel {
         vb: VarBuilder,
         head_vb: VarBuilder,
         device: &Device,
+        options: RustLoadOptions,
     ) -> Result<Self> {
         let hidden = encoder_config.hidden_size();
 
-        let encoder = Encoder::load(vb.pp("encoder"), &encoder_config).context("loading encoder")?;
+        let encoder = Encoder::load(vb.pp("encoder"), &encoder_config, options).context("loading encoder")?;
         let classifier = Classifier::load_span(head_vb.pp("classifier"), hidden).context("loading classifier")?;
 
         // Entity extraction needs `count_pred`/`count_embed`/`span_rep`; only

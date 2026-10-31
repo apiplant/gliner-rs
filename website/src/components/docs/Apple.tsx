@@ -170,39 +170,26 @@ print(try await extractor.extract("Michele vive a Milano e lavora per Acme."))`}
           confidence values and selected candidates. Evaluate it on your own workload.
         </P>
         <P>
-          A new Metal-to-Metal comparison used Release builds on an M3 Pro, F32, pinned small and
-          multi checkpoints, and three Italian extraction requests of 64, 97 and 130 words. Each
-          request/backend pair ran in a fresh process across three independent trials, with five
-          warm-ups and 30 measured calls per trial. Backend order alternated. Timings include
-          preparation, inference and JSON output; model loading was measured separately. Before
-          timing, prepared input records matched exactly. Across 630 per-run GPU output pairs, spans,
-          labels, order and confidence values stayed within the strict comparison tolerance.
-        </P>
-        <FlagTable rows={[
-          { flag: "small · 64 / 97 / 130 words", meaning: "Candle Metal 13.2 / 18.7 / 23.0 ms; MLX Metal 10.2 / 12.2 / 15.1 ms." },
-          { flag: "multi · 64 / 97 / 130 words", meaning: "Candle Metal 25.0 / 35.6 / 49.6 ms; MLX Metal 18.8 / 24.9 / 33.4 ms." },
-        ]} />
-        <P>
-          These warm medians show MLX 23–35% lower latency on these six Mac workloads. Peak process
-          RSS, including loaded weights, was about 0.81 versus 0.40 GB for small and 2.69 versus
-          1.34 GB for multi (Candle versus MLX). These are measurements of complete processes, not
-          GPU-only allocation totals, persistent resident-memory differences or memory guarantees. The report includes p95, individual
-          trials, model-load timings, checksums and the complete method. It does not establish a
-          general advantage across devices, tasks or workloads.
+          The optimized Candle F32 path streams weights using 16 MiB staging and Private storage
+          on macOS, and direct Shared storage on iOS. Its fused relative-attention score epilogue
+          remains dense O(T²), not FlashAttention. <IC>--metal-mmap</IC> and{" "}
+          <IC>--metal-original-attention</IC> independently restore the original paths; Rust
+          <IC>RustLoadOptions</IC>, C API flags 0–3 and the demo toggle expose these choices.
         </P>
         <P>
-          This run establishes strict output parity, but performance and process memory are not
-          comparable: MLX was faster and used about half the peak RSS on these workloads. The
-          evidence therefore does not meet a criterion that would make the Swift/MLX path
-          redundant based on comparable outputs, performance and memory.
+          Release comparisons on an M3 Pro and iPhone 17 Pro used small and multi, three short
+          requests and three trials, with five warm-ups and 30 measured calls per request and
+          engine. Each device recorded 54 runs and 1,890 calls. Original-to-optimized Candle
+          median latency decreased 18–31% on Mac and 13–31% on iPhone; MLX remained 7–18% and
+          18–23% lower, respectively. These results apply to the measured workloads.
         </P>
         <P>
-          The physical iPhone 17 Pro Release comparison also passed all 28 cases in direct
-          GPU-to-GPU order for Small and Multi, plus all 630 paired benchmark outputs. Across
-          the six workloads, MLX median request latency was 30–43% lower. Both engines ran in
-          the same SwiftUI harness; each process covered all three requests. Candle had lower
-          model-load times with warm system/shader caches. Phone timing excludes diagnostic
-          JSONL writing, so absolute phone and CLI times should not be compared directly.
+          Peak RSS is not total physical RAM: mapped files and Private/Shared allocations have
+          different accounting. For short Mac requests, optimized Candle peak physical footprint
+          was 0.3–2.7% higher; iPhone multi was approximately unchanged. In a separate single mixed
+          long-suite run, physical peaks fell 26%/21% on Mac and 28%/21% on iPhone for small/multi.
+          RSS and physical footprint overlap and must not be added. The report includes per-trial
+          measurements, validation and methods.
         </P>
         <P>
           An earlier comparison of Rust/Candle CPU against Swift/MLX Metal reported a 9.59–10.35×

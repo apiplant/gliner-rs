@@ -6,7 +6,7 @@ For **iOS and macOS on Apple Silicon**, the existing Rust model can use
 It uses MLX with Metal acceleration, includes a demo app in [`ios/`](ios/), and supports
 configurable precision and memory profiles. See the [Apple validation report](docs/APPLE_VALIDATION.md)
 for checkpoint coverage, parity checks, and measured Mac performance.
-See the [Apple backend technical report](reports/gliner-apple-report.html) for the standalone English report and embedded measurements.
+See the [Apple backend technical report](reports/gliner-apple-report.html) for the standalone English report and embedded measurements. The optimized Candle F32 path streams weights and fuses the relative-attention score epilogue; its dense attention remains O(T²). On the tested short requests, original-to-optimized Candle median latency decreased 18–31% on Mac and 13–31% on iPhone; MLX remained 7–18% and 18–23% lower, respectively. See the report for the method and separate physical-footprint and RSS measurements.
 
 Rust inference for GLiNER2 **boundary-architecture** checkpoints, built on
 [candle](https://github.com/huggingface/candle). It is a port of the inference path of

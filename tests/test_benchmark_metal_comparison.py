@@ -14,7 +14,8 @@ class BenchmarkMetalComparisonTests(unittest.TestCase):
         self.root = Path(self.temp)
         self.rust = self.root / "apple_reference"
         self.mlx = self.root / "gliner-mlx"
-        for binary in (self.rust, self.mlx):
+        self.baseline = self.root / "old-apple_reference"
+        for binary in (self.rust, self.mlx, self.baseline):
             binary.write_text("fake executable")
             binary.chmod(0o755)
         self.requests = [
@@ -47,7 +48,7 @@ class BenchmarkMetalComparisonTests(unittest.TestCase):
         inputs_only = "--inputs-only" in command
         swift = "--model" in command
         if inputs_only:
-            ids = [1, 2] if not (self.mode == "input-mismatch" and swift) else [1, 3]
+            ids = [1, 2] if not ((self.mode == "input-mismatch" and swift) or (self.mode == "baseline-input-mismatch" and Path(command[0]) == self.baseline.resolve())) else [1, 3]
             stdout = json.dumps({"input_ids": ids, "word_positions": [1]}) + "\n"
             stderr = ""
         else:
@@ -70,6 +71,7 @@ class BenchmarkMetalComparisonTests(unittest.TestCase):
         with patch.object(bench, "ROOT", self.root), \
              patch.object(bench.apple, "load_requests", return_value=[dict(x) for x in self.requests]), \
              patch.object(bench.apple, "machine_info", return_value={"machine": "test"}), \
+             patch.object(bench, "source_revision", return_value={"head": "abc", "dirty": True}), \
              patch.object(bench.apple, "file_sha", return_value="fake-sha256"), \
              patch.object(bench.subprocess, "run", side_effect=self.fake_subprocess_run):
             return bench.benchmark(self.args)
@@ -114,6 +116,50 @@ class BenchmarkMetalComparisonTests(unittest.TestCase):
                 pair = [run["backend"] for run in runs
                         if run["trial"] == trial + 1 and run["request"] == request["name"]]
                 self.assertEqual(pair, bench.pair_order(trial * len(self.requests) + index))
+
+    def test_baseline_rotates_and_records_comparisons_and_provenance(self):
+        self.args.baseline_rust_binary = str(self.baseline)
+        self.args.baseline_source_ref = "old-revision"
+        report = self.execute()
+        self.assertEqual(report["source_revision"], {"head": "abc", "dirty": True})
+        self.assertEqual(report["builds"]["candle_baseline"]["sha256"], "fake-sha256")
+        self.assertEqual(report["builds"]["candle_baseline"]["declared_source_ref"], "old-revision")
+        first = []
+        for trial in range(3):
+            for index, request in enumerate(self.requests):
+                order = [r["backend"] for r in report["runs"]
+                         if r["trial"] == trial + 1 and r["request"] == request["name"]]
+                self.assertEqual(order, bench.pair_order(trial * 3 + index, baseline=True))
+                first.append(order[0])
+        self.assertEqual({name: first.count(name) for name in set(first)},
+                         {"candle_metal_baseline": 3, "candle_metal": 3, "mlx_metal": 3})
+        self.assertEqual(len(report["direct_gpu_comparisons"]), 18)
+        self.assertTrue(all(c["strict"] for c in report["direct_gpu_comparisons"]))
+        for row in report["comparisons"]:
+            self.assertEqual(len(row["backends"]), 3)
+            self.assertEqual(row["candle_before_after"]["latency_reduction_percent"], 0)
+            self.assertEqual(row["candle_before_after"]["load_reduction_percent"], 0)
+            self.assertEqual(row["candle_before_after"]["peak_rss_reduction_percent"], 0)
+            self.assertIn("candle_to_mlx_latency_ratio", row)
+
+    def test_baseline_input_mismatch_fails_before_timing(self):
+        self.args.baseline_rust_binary = str(self.baseline)
+        with self.assertRaisesRegex(ValueError, "Prepared inputs differ"):
+            self.execute("baseline-input-mismatch")
+        self.assertEqual(self.read_report()["runs"], [])
+
+    def test_direct_baseline_comparison_detects_difference(self):
+        files = []
+        for index, value in enumerate((1, 2, 2)):
+            path = self.root / f"output{index}.jsonl"
+            path.write_text(json.dumps({"value": value}) + "\n")
+            files.append(path)
+        report = {"runs": [{"model": "small", "request": "x", "trial": 1,
+                            "backend": backend, "stdout_artifact": str(path)}
+                           for backend, path in zip(("candle_metal_baseline", "candle_metal", "mlx_metal"), files)]}
+        comparisons = bench.direct_gpu_comparisons(report, 1e-4)
+        self.assertTrue(comparisons[0]["strict"])
+        self.assertFalse(comparisons[1]["strict"])
 
 
 if __name__ == "__main__":

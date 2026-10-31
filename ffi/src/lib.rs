@@ -3,8 +3,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use candle_core::{DType, Device};
 use gliner_rs::{
     AttributeGroup, Cardinality, ClassActivation, ClassificationSpec, EntityDtype, EntitySpec,
-    ExtractOptions, FieldDtype, FieldSpec, GLiNER2, RegexValidator, RelationSpec, Schema,
-    StructureMode, StructureSpec, ValidatorMode, WordSplitter,
+    ExtractOptions, FieldDtype, FieldSpec, GLiNER2, MetalWeightLoading, RegexValidator,
+    RelationSpec, RustLoadOptions, Schema, StructureMode, StructureSpec, ValidatorMode,
+    WordSplitter,
 };
 use serde_json::Value;
 use std::{
@@ -229,11 +230,36 @@ fn guarded<T>(err: *mut *mut c_char, op: impl FnOnce() -> Result<T>) -> Option<T
         }
     }
 }
+fn load_options(flags: i32) -> Result<RustLoadOptions> {
+    if !(0..=3).contains(&flags) {
+        bail!("invalid Metal loader/attention flags {flags}")
+    }
+    Ok(RustLoadOptions {
+        metal_weight_loading: if flags & 1 == 0 {
+            MetalWeightLoading::Stream
+        } else {
+            MetalWeightLoading::Mmap
+        },
+        metal_attention_optimizations: flags & 2 == 0,
+    })
+}
+/// Flags: bit 0 selects mmap instead of streaming; bit 1 selects original
+/// attention instead of optimized Metal attention. The default is zero.
 #[no_mangle]
 pub extern "C" fn gliner_candle_open(path: *const c_char, err: *mut *mut c_char) -> *mut GLiNER2 {
+    gliner_candle_open_with_options(path, 0, err)
+}
+#[no_mangle]
+pub extern "C" fn gliner_candle_open_with_options(
+    path: *const c_char,
+    loader: i32,
+    err: *mut *mut c_char,
+) -> *mut GLiNER2 {
     guarded(err, || {
+        let options = load_options(loader)?;
+        let path = read_cstr(path)?;
         let device = Device::new_metal(0).context("Metal device unavailable")?;
-        let model = GLiNER2::load(read_cstr(path)?, &device, DType::F32)?;
+        let model = GLiNER2::load_with_options(path, &device, DType::F32, options)?;
         device.synchronize()?;
         Ok(Box::into_raw(Box::new(model)))
     })
@@ -324,7 +350,21 @@ mod tests {
         assert!(max_words(&json!({"maxWords":-1})).is_err());
         assert!(max_words(&json!({"maxWords":1.5})).is_err());
         assert_eq!(max_words(&json!({"maxWords":0})).unwrap(), Some(0));
+        for (flags, loader, optimized) in [
+            (0, MetalWeightLoading::Stream, true),
+            (1, MetalWeightLoading::Mmap, true),
+            (2, MetalWeightLoading::Stream, false),
+            (3, MetalWeightLoading::Mmap, false),
+        ] {
+            let options = load_options(flags).unwrap();
+            assert_eq!(options.metal_weight_loading, loader);
+            assert_eq!(options.metal_attention_optimizations, optimized);
+        }
         let mut error = ptr::null_mut();
+        assert!(gliner_candle_open_with_options(ptr::null(), 4, &mut error).is_null());
+        assert!(!error.is_null());
+        gliner_candle_string_free(error);
+        error = ptr::null_mut();
         let request = CString::new("{}").unwrap();
         let result = gliner_candle_extract(ptr::null_mut(), request.as_ptr(), &mut error);
         assert!(result.is_null());

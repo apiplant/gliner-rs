@@ -26,10 +26,13 @@ pub mod heads;
 pub mod model;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod model_path;
+#[cfg(feature = "metal")]
+mod metal_attention;
 pub mod modernbert;
 pub mod processor;
 pub mod records;
 pub mod safetensors32;
+pub mod weights;
 pub mod schema;
 #[cfg(all(feature = "server", not(target_arch = "wasm32")))]
 pub mod server;
@@ -40,6 +43,7 @@ pub use chunking::ChunkOptions;
 pub use decode::OverlapPolicy;
 pub use model::{ExtractOptions, GLiNER2};
 pub use processor::WordSplitter;
+pub use weights::{MetalWeightLoading, RustLoadOptions};
 pub use records::Cardinality;
 pub use schema::{
     AttributeGroup, ClassActivation, ClassificationSpec, EntityDtype, EntitySpec, FieldDtype, FieldSpec,

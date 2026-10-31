@@ -19,6 +19,12 @@ def main():
     p.add_argument("device")
     p.add_argument("--variant", choices=["small", "multi"], required=True)
     p.add_argument("--reuse-model", action="store_true", help="Reuse existing device checkpoint; each run checks its pinned manifest")
+    p.add_argument("--reuse-reference", action="store_true", help="Reuse previously generated CPU references (avoids host inference during isolated benchmarks)")
+    p.add_argument("--memory-trace", action="store_true")
+    p.add_argument("--load-autoreleasepool", action="store_true")
+    p.add_argument("--metal-loader", choices=["stream", "mmap"], default="stream")
+    p.add_argument("--metal-original-attention", action="store_true")
+    p.add_argument("--tag", default="", help="Distinct artifact tag to preserve the baseline")
     p.add_argument("--reference-binary", type=Path, default=ROOT / "target/release/examples/apple_reference", help="Built CPU reference example")
     args = p.parse_args()
     model = ROOT / ".models" / f"gliner2.5-{args.variant}-v1"
@@ -37,24 +43,31 @@ def main():
         with output_path.open("w", encoding="utf8") as output:
             subprocess.run([str(args.reference_binary), str(model), str(input_path)], cwd=ROOT, env=env, stdout=output, check=True)
     parity_ref = references / f"{args.variant}-parity-cpu-reference.jsonl"
-    reference(parity, references / f"{args.variant}-parity-cases.json", parity_ref)
-    for request in requests:
-        name = request["name"]
-        reference([request], references / f"{args.variant}-{name}-case.json", references / f"{args.variant}-{name}-cpu-reference.jsonl")
+    if args.reuse_reference:
+        required = [parity_ref] + [references / f"{args.variant}-{request['name']}-cpu-reference.jsonl" for request in requests]
+        if not all(path.is_file() for path in required): raise SystemExit("Missing reusable CPU reference files")
+    else:
+        reference(parity, references / f"{args.variant}-parity-cases.json", parity_ref)
+        for request in requests:
+            name = request["name"]
+            reference([request], references / f"{args.variant}-{name}-case.json", references / f"{args.variant}-{name}-cpu-reference.jsonl")
     if not args.reuse_model:
         subprocess.run(["xcrun", "devicectl", "device", "copy", "to", "--device", args.device,
                         "--source", str(model), "--destination", "Documents/self-test-model", "--domain-type", "appDataContainer",
                         "--domain-identifier", APP, "--timeout", "240"], cwd=ROOT, check=True)
+    extra = (["--memory-trace"] if args.memory_trace else []) + (["--load-autoreleasepool"] if args.load_autoreleasepool else []) + (["--tag", args.tag] if args.tag else []) + ["--metal-loader", args.metal_loader] + (["--metal-original-attention"] if args.metal_original_attention else [])
     for backend in ("mlx", "candle"):
         subprocess.run([sys.executable, "scripts/verify_candle_iphone.py", args.device, "--variant", args.variant,
-                        "--backend", backend, "--mode", "parity", "--trial", "1"], cwd=ROOT, check=True)
+                        "--backend", backend, "--mode", "parity", "--trial", "1", *extra], cwd=ROOT, check=True)
     for trial, order in enumerate((("mlx", "candle"), ("candle", "mlx"), ("mlx", "candle")), 1):
         for backend in order:
             print(f"{args.variant}: trial {trial}, {backend}", flush=True)
             subprocess.run([sys.executable, "scripts/verify_candle_iphone.py", args.device, "--variant", args.variant,
-                            "--backend", backend, "--mode", "benchmark", "--trial", str(trial)], cwd=ROOT, check=True)
+                            "--backend", backend, "--mode", "benchmark", "--trial", str(trial), *extra], cwd=ROOT, check=True)
     subprocess.run([sys.executable, "scripts/analyze_candle_iphone.py", "--variant", args.variant,
-                    "--parity-reference", str(parity_ref), "--benchmark-reference-dir", str(references)], cwd=ROOT, check=True)
+                    "--parity-reference", str(parity_ref), "--benchmark-reference-dir", str(references),
+                    "--expect-metal-loader", args.metal_loader, "--expect-original-attention", "yes" if args.metal_original_attention else "no", "--expect-load-pool", "on" if args.load_autoreleasepool else "off",
+                    *(["--tag", args.tag] if args.tag else [])], cwd=ROOT, check=True)
 
 if __name__ == "__main__":
     main()

@@ -6,6 +6,7 @@ or devicectl to transfer the checkpoint. Files remain local to the device.
 """
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -26,7 +27,14 @@ def main():
     p.add_argument("--variant", choices=["small", "multi"], required=True)
     p.add_argument("--mode", choices=["parity", "benchmark"], default="parity")
     p.add_argument("--trial", type=int, default=1)
+    p.add_argument("--metal-loader", choices=["stream", "mmap"], default="stream")
+    p.add_argument("--metal-original-attention", action="store_true", help="Use original rather than optimized Candle Metal attention")
+    p.add_argument("--load-autoreleasepool", action="store_true", help="Wrap Candle loading in an autorelease pool (diagnostic)")
+    p.add_argument("--memory-trace", action="store_true", help="Record RSS and physical footprint at load and warm/steady boundaries")
+    p.add_argument("--tag", default="", help="Distinct artifact tag; never overwrite baseline results")
     args = p.parse_args()
+    if args.tag and not re.fullmatch(r"[A-Za-z0-9_-]+", args.tag):
+        p.error("--tag must contain only letters, digits, underscores or hyphens")
     out = ROOT / ".models"
     out.mkdir(exist_ok=True)
     if args.mode == "parity":
@@ -48,8 +56,14 @@ def main():
     run("device", "copy", "to", *common, "--source", str(source), "--destination", "Documents/" + name, "--timeout", "30")
     run_id = str(uuid.uuid4())
     extra = ["--benchmark"] if args.mode == "benchmark" else []
+    if args.memory_trace: extra.append("--memory-trace")
+    if args.load_autoreleasepool: extra.append("--candle-load-autoreleasepool")
+    if args.backend == "candle":
+        extra += ["--candle-metal-loader", args.metal_loader]
+        if args.metal_original_attention: extra.append("--metal-original-attention")
     run("device", "process", "launch", "--device", args.device, "--terminate-existing", APP, "--", "--self-test", "--self-test-precision", "float32", "--self-test-backend", args.backend, "--self-test-id", run_id, *extra)
-    prefix = out / f"iphone-{args.variant}-{args.backend}-{args.mode}-trial{args.trial}"
+    tag = f"-{args.tag}" if args.tag else ""
+    prefix = out / f"iphone-{args.variant}-{args.backend}-{args.mode}-trial{args.trial}{tag}"
     temporary = prefix.with_suffix(".summary.part")
     summary = None
     for _ in range(600):
@@ -70,6 +84,15 @@ def main():
         raise SystemExit("Device run failed: " + str(summary.get("error")))
     if summary.get("backend") != args.backend or summary.get("precision") != "float32":
         raise SystemExit("Device summary backend or precision does not match request")
+    if args.backend == "candle" and (summary.get("candleLoadAutoreleasePool") != args.load_autoreleasepool or summary.get("candleMetalLoader") != args.metal_loader or summary.get("candleOriginalAttention") != args.metal_original_attention):
+        raise SystemExit("Candle loader, attention or autorelease-pool setting does not match request")
+    if args.memory_trace:
+        points = summary.get("memoryPoints")
+        expected_points = 30 if args.mode == "parity" else 8
+        if not isinstance(summary.get("peakPhysicalFootprintBytes"), int) or summary["peakPhysicalFootprintBytes"] <= 0:
+            raise SystemExit("Device does not expose a valid peak physical footprint")
+        if not isinstance(points, list) or len(points) != expected_points or any(not isinstance(point.get("residentBytes"), int) or point["residentBytes"] <= 0 or not isinstance(point.get("physicalFootprintBytes"), int) or point["physicalFootprintBytes"] <= 0 for point in points):
+            raise SystemExit("Invalid or incomplete device memory trace")
     expected = 28 if args.mode == "parity" else 3
     expected_lines = expected * (35 if args.mode == "benchmark" else 1)
     if summary.get("caseCount") != expected:

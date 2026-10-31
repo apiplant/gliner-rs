@@ -28,6 +28,7 @@ enum DemoBackend: String, CaseIterable {
 }
 #if CANDLE_ENABLED
 @_silgen_name("gliner_candle_open") private func candleOpen(_ path: UnsafePointer<CChar>, _ error: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> OpaquePointer?
+@_silgen_name("gliner_candle_open_with_options") private func candleOpenWithOptions(_ path: UnsafePointer<CChar>, _ loader: Int32, _ error: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> OpaquePointer?
 @_silgen_name("gliner_candle_extract") private func candleExtract(_ handle: OpaquePointer, _ request: UnsafePointer<CChar>, _ error: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("gliner_candle_close") private func candleClose(_ handle: OpaquePointer)
 @_silgen_name("gliner_candle_string_free") private func candleFree(_ value: UnsafeMutablePointer<CChar>)
@@ -41,9 +42,11 @@ private struct CandleRequest: Encodable {
 }
 private final class CandleModel {
     private let handle: OpaquePointer
-    init(directory: URL) throws {
+    init(directory: URL, loader: String = "stream", originalAttention: Bool = false) throws {
+        guard loader == "stream" || loader == "mmap" else { throw GLiNERError.invalidInput("Invalid Candle Metal loader: \(loader)") }
         var error: UnsafeMutablePointer<CChar>?
-        let result = directory.path.withCString { candleOpen($0, &error) }
+        let flags: Int32 = (loader == "stream" ? 0 : 1) | (originalAttention ? 2 : 0)
+        let result = directory.path.withCString { candleOpenWithOptions($0, flags, &error) }
         guard let result else { throw Self.failure(error) }; self.handle = result
     }
     deinit { candleClose(handle) }
@@ -64,7 +67,7 @@ private final class CandleModel {
 #endif
 actor ModelWorker {
     private struct LoadKey: Equatable {
-        let variant: DemoVariant, directory: URL, precision: ModelPrecision, tf32: Bool, cache: String, clear: Bool, backend: DemoBackend
+        let variant: DemoVariant, directory: URL, precision: ModelPrecision, tf32: Bool, cache: String, clear: Bool, backend: DemoBackend, candleOptimized: Bool
     }
     private var model: GLiNERModel?
     private var loaded: LoadKey?
@@ -72,14 +75,14 @@ actor ModelWorker {
     private var candle: CandleModel?
     #endif
     func extract(variant: DemoVariant, directory: URL, text: String, labels: [String], precision: ModelPrecision,
-                 tf32: Bool, cache: String, clear: Bool, backend: DemoBackend) throws -> (String, Double) {
+                 tf32: Bool, cache: String, clear: Bool, backend: DemoBackend, candleOptimized: Bool) throws -> (String, Double) {
         let start = Date()
-        let key = LoadKey(variant: variant, directory: directory, precision: precision, tf32: tf32, cache: cache, clear: clear, backend: backend)
+        let key = LoadKey(variant: variant, directory: directory, precision: precision, tf32: tf32, cache: cache, clear: clear, backend: backend, candleOptimized: candleOptimized)
         #if CANDLE_ENABLED
         if backend == .candle {
             if loaded != key || candle == nil {
                 model = nil; candle = nil; loaded = nil; GLiNERRuntime.releaseUnusedMemory()
-                candle = try CandleModel(directory: directory); loaded = key
+                candle = try CandleModel(directory: directory, loader: candleOptimized ? "stream" : "mmap", originalAttention: !candleOptimized); loaded = key
             }
             let value = try candle!.extract(text: text, schema: Schema(entities: labels), options: .init(includeSpans: true, includeConfidence: true), splitter: .whitespace)
             return (try value.prettyPrinted(), Date().timeIntervalSince(start))
@@ -125,6 +128,30 @@ actor ModelWorker {
     }
 }
 
+private struct DeviceMemoryPoint: Encodable {
+    let phase: String
+    let caseIndex: Int?
+    let iteration: Int?
+    let residentBytes: UInt64
+    let physicalFootprintBytes: UInt64
+    let peakPhysicalFootprintBytes: Int64?
+}
+private func deviceMemoryPoint(_ phase: String, caseIndex: Int? = nil, iteration: Int? = nil) throws -> DeviceMemoryPoint {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    let status = withUnsafeMutablePointer(to: &info) { pointer in
+        pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    guard status == KERN_SUCCESS else { throw GLiNERError.invalidInput("task_info failed: \(status)") }
+    // This ledger field was added in TASK_VM_INFO revision 3. Older kernels may return fewer words.
+    let peakEnd = (MemoryLayout<task_vm_info_data_t>.offset(of: \.ledger_phys_footprint_peak) ?? Int.max - MemoryLayout<Int64>.size) + MemoryLayout<Int64>.size
+    let peak = Int(count) * MemoryLayout<natural_t>.size >= peakEnd && info.ledger_phys_footprint_peak > 0 ? info.ledger_phys_footprint_peak : nil
+    return DeviceMemoryPoint(phase: phase, caseIndex: caseIndex, iteration: iteration,
+                             residentBytes: info.resident_size, physicalFootprintBytes: info.phys_footprint,
+                             peakPhysicalFootprintBytes: peak)
+}
 private struct SelfTestSummary: Encodable {
     var runID: String?
     var tf32Environment: String?
@@ -136,7 +163,12 @@ private struct SelfTestSummary: Encodable {
     var totalInferenceSeconds: Double = 0
     var perCaseSeconds: [Double] = []
     var peakResidentBytes: Int64?
+    var peakPhysicalFootprintBytes: Int64?
     var mlxMemory: RuntimeMemorySnapshot?
+    var memoryPoints: [DeviceMemoryPoint]?
+    var candleLoadAutoreleasePool: Bool?
+    var candleMetalLoader: String?
+    var candleOriginalAttention: Bool?
     var error: String?
 }
 private actor SelfTestWorker {
@@ -157,6 +189,8 @@ private actor SelfTestWorker {
             let tracePartURL = docs.appendingPathComponent("apple-self-test-encoder.jsonl.part")
             let wantsTrace = arguments.contains("--self-test-trace")
             let benchmark = arguments.contains("--benchmark")
+            let memoryTrace = arguments.contains("--memory-trace")
+            if memoryTrace { summary.memoryPoints = [] }
             // Remove old success markers before any work starts.
             for url in [summaryURL, resultsURL, partURL, traceURL, tracePartURL] where fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
             temporary = partURL
@@ -176,18 +210,30 @@ private actor SelfTestWorker {
                 let caseFile = benchmark ? "apple-benchmark-cases.json" : "apple_cases.json"
                 let cases = try InferenceRequest.loadCases(url: docs.appendingPathComponent(caseFile))
                 summary.caseCount = cases.count
+                if memoryTrace { summary.memoryPoints?.append(try deviceMemoryPoint("beforeLoad")) }
                 let loadStart = DispatchTime.now().uptimeNanoseconds
                 let model: GLiNERModel?
                 #if CANDLE_ENABLED
                 let candle: CandleModel?
-                if summary.backend == "candle" { model = nil; candle = try CandleModel(directory: directory) }
-                else { candle = nil; model = try GLiNERModel(modelDirectory: directory, precision: precision, runtimeConfiguration: DemoRuntimeSettings.startupConfiguration()) }
+                if summary.backend == "candle" {
+                    model = nil
+                    let pool = arguments.contains("--candle-load-autoreleasepool")
+                    var loader = "stream"
+                    if let index = arguments.firstIndex(of: "--candle-metal-loader") {
+                        guard index + 1 < arguments.count else { throw GLiNERError.invalidInput("Missing Candle Metal loader") }
+                        loader = arguments[index + 1]
+                    }
+                    let originalAttention = arguments.contains("--metal-original-attention")
+                    summary.candleLoadAutoreleasePool = pool; summary.candleMetalLoader = loader; summary.candleOriginalAttention = originalAttention
+                    candle = try pool ? autoreleasepool { try CandleModel(directory: directory, loader: loader, originalAttention: originalAttention) } : CandleModel(directory: directory, loader: loader, originalAttention: originalAttention)
+                } else { candle = nil; model = try GLiNERModel(modelDirectory: directory, precision: precision, runtimeConfiguration: DemoRuntimeSettings.startupConfiguration()) }
                 #else
                 guard summary.backend == "mlx" else { throw GLiNERError.unsupported("Candle Metal is not linked in this build") }
                 model = try GLiNERModel(modelDirectory: directory, precision: precision, runtimeConfiguration: DemoRuntimeSettings.startupConfiguration())
                 #endif
                 if let setting = getenv("MLX_ENABLE_TF32") { summary.tf32Environment = String(cString: setting) }
                 summary.loadSeconds = Double(DispatchTime.now().uptimeNanoseconds - loadStart) / 1_000_000_000
+                if memoryTrace { summary.memoryPoints?.append(try deviceMemoryPoint("afterLoad")) }
                 guard fm.createFile(atPath: partURL.path, contents: nil) else { throw SelfTestError.cannotCreateResults }
                 let stream = try FileHandle(forWritingTo: partURL)
                 var traceStream: FileHandle?
@@ -235,6 +281,9 @@ private actor SelfTestWorker {
                                 if !benchmark { GLiNERRuntime.releaseUnusedMemory() }
                                 summary.mlxMemory = GLiNERRuntime.memorySnapshot()
                             }
+                            if memoryTrace && (!benchmark || iteration == 4 || iteration == 34) {
+                                summary.memoryPoints?.append(try deviceMemoryPoint(benchmark ? (iteration == 4 ? "afterWarmup" : "afterMeasured") : "afterCase", caseIndex: caseIndex, iteration: iteration))
+                            }
                         }
                     }
                     try stream.synchronize(); try stream.close()
@@ -247,6 +296,7 @@ private actor SelfTestWorker {
             } catch { summary.error = error.localizedDescription; try? fm.removeItem(at: tracePartURL) }
             var usage = rusage()
             if getrusage(RUSAGE_SELF, &usage) == 0 { summary.peakResidentBytes = Int64(usage.ru_maxrss) }
+            summary.peakPhysicalFootprintBytes = (try? deviceMemoryPoint("final"))?.peakPhysicalFootprintBytes
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(summary).write(to: summaryURL, options: .atomic)
             if let temporary { try? fm.removeItem(at: temporary) }
@@ -346,7 +396,7 @@ final class DemoState: ObservableObject {
             busy = false; downloading = false
         }
     }
-    func extract(profile: InferenceProfile, tf32: Bool, cache: String, clear: Bool, backend: DemoBackend) {
+    func extract(profile: InferenceProfile, tf32: Bool, cache: String, clear: Bool, backend: DemoBackend, candleOptimized: Bool) {
         guard !busy else { return }
         let chosen = variant, input = text, parsed = labels.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard let modelDirectory = readyDirectory(chosen) else { status = "Scarica prima il modello selezionato."; return }
@@ -355,7 +405,7 @@ final class DemoState: ObservableObject {
         Task {
             do {
                 let (json, seconds) = try await worker.extract(variant: chosen, directory: modelDirectory, text: input, labels: parsed,
-                                                               precision: profile.precision, tf32: tf32, cache: cache, clear: clear, backend: backend)
+                                                               precision: profile.precision, tf32: tf32, cache: cache, clear: clear, backend: backend, candleOptimized: candleOptimized)
                 output = json; status = String(format: "Completato in %.2f secondi. Il primo risultato include il caricamento del modello.", seconds)
             } catch { status = "Estrazione non riuscita: \(error.localizedDescription)" }
             busy = false
@@ -399,6 +449,7 @@ private func displayEntities(_ json: String) -> [EntityDisplayGroup] {
 struct ContentView: View {
     @StateObject private var state = DemoState()
     @State private var backend: DemoBackend = .mlx
+    @AppStorage("demo.candleOptimized") private var candleOptimized = true
     @AppStorage("demo.profile") private var profile = InferenceProfile.accurate.rawValue
     @AppStorage("demo.cache") private var cache = DemoRuntimeSettings.defaultCache
     @AppStorage("demo.clear") private var clear = DemoRuntimeSettings.defaultClear
@@ -429,13 +480,17 @@ struct ContentView: View {
                 }
                 if selectedProfile != .accurate { Text("La precisione F16 è approssimata e può cambiare le risposte.").font(.caption).foregroundStyle(.secondary) }
                 DisclosureGroup("Opzioni avanzate") {
-                    Picker("Cache", selection: $cache) {
-                        Text("Auto").tag("auto"); Text("20 MB").tag("20"); Text("128 MB").tag("128")
-                        Text("512 MB").tag("512"); Text("0 MB").tag("0")
+                    if backend == .candle {
+                        Toggle("Ottimizzazioni Rust", isOn: $candleOptimized)
+                    } else {
+                        Picker("Cache", selection: $cache) {
+                            Text("Auto").tag("auto"); Text("20 MB").tag("20"); Text("128 MB").tag("128")
+                            Text("512 MB").tag("512"); Text("0 MB").tag("0")
+                        }
+                        Toggle("Libera la cache tra le richieste", isOn: $clear)
+                        Toggle("TF32 (chip recenti, può cambiare i risultati)", isOn: $tf32)
                     }
-                    Toggle("Libera la cache tra le richieste", isOn: $clear)
-                    Toggle("TF32 (chip recenti, può cambiare i risultati)", isOn: $tf32)
-                }.disabled(state.busy || backend == .candle)
+                }.disabled(state.busy)
                 if needsRestart && backend == .mlx { Text("Chiudi e riapri l’app per applicare TF32.").foregroundStyle(.orange) }
                 if backend == .candle && selectedProfile != .accurate { Text("Candle Metal richiede il profilo Precisione F32.").foregroundStyle(.orange) }
                 if state.downloading { ProgressView(value: Double(state.completedFiles), total: 4) { Text("File completati: \(state.completedFiles) di 4") } }
@@ -443,7 +498,7 @@ struct ContentView: View {
                 Text("Testo").font(.headline)
                 TextEditor(text: $state.text).frame(minHeight: 120).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.3)))
                 TextField("Etichette separate da virgole", text: $state.labels).textFieldStyle(.roundedBorder)
-                Button("Estrai") { state.extract(profile: selectedProfile, tf32: tf32, cache: cache, clear: clear, backend: backend) }
+                Button("Estrai") { state.extract(profile: selectedProfile, tf32: tf32, cache: cache, clear: clear, backend: backend, candleOptimized: candleOptimized) }
                     .buttonStyle(.borderedProminent).disabled(state.busy || (backend == .mlx && needsRestart) || (backend == .candle && selectedProfile != .accurate))
                 if !state.output.isEmpty {
                     let groups = displayEntities(state.output)

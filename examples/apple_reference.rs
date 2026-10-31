@@ -1,17 +1,16 @@
 //! Export GLiNER inputs/results for the Swift/Apple port.
 //!
 //! Usage: cargo run --release --example apple_reference -- MODEL_DIR CASES_JSON
-//!        [--inputs-only | --trace] [--metal] [--repeat N] [--timing]
+//!        [--inputs-only | --trace] [--metal [--metal-mmap] [--metal-original-attention]] [--repeat N] [--timing]
 
 use anyhow::{bail, Context, Result};
 use candle_core::{DType, Device, Tensor};
-use candle_nn::VarBuilder;
 use gliner_rs::config::{load_configs, EncoderConfig};
 use gliner_rs::deberta::DebertaV2;
 use gliner_rs::processor::Processor;
 use gliner_rs::{
     AttributeGroup, ClassActivation, ClassificationSpec, ExtractOptions, GLiNER2, Schema, StructureMode,
-    StructureSpec, WordSplitter,
+    StructureSpec, WordSplitter, MetalWeightLoading, RustLoadOptions,
 };
 use serde_json::{json, Value};
 use std::path::Path;
@@ -170,16 +169,14 @@ fn input_record(case: &Value, processor: &mut Processor) -> Result<Value> {
     }))
 }
 
-fn load_trace_encoder(model_dir: &Path, device: &Device) -> Result<DebertaV2> {
+fn load_trace_encoder(model_dir: &Path, device: &Device, options: RustLoadOptions) -> Result<DebertaV2> {
     let (_, encoder_config) = load_configs(model_dir).context("loading checkpoint configs")?;
     let EncoderConfig::Deberta(config) = encoder_config else {
         bail!("--trace currently supports DeBERTa-v2 encoder checkpoints only");
     };
     let weights = model_dir.join("model.safetensors");
-    // SAFETY: the checkpoint must not be modified while its memory map is open.
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights], DType::F32, device) }
-        .with_context(|| format!("mapping {}", weights.display()))?;
-    DebertaV2::load(vb.pp("encoder"), &config).context("loading DeBERTa-v2 encoder")
+    let vb = gliner_rs::weights::checkpoint_var_builder(&weights, DType::F32, device, options)?;
+    DebertaV2::load_with_attention_optimizations(vb.pp("encoder"), &config, options.metal_attention_optimizations).context("loading DeBERTa-v2 encoder")
 }
 
 fn trace_record(case: &Value, processor: &mut Processor, encoder: &DebertaV2, device: &Device) -> Result<Value> {
@@ -212,6 +209,8 @@ struct Arguments {
     repeat: usize,
     timing: bool,
     metal: bool,
+    metal_mmap: bool,
+    metal_original_attention: bool,
 }
 
 fn parse_args() -> Result<Arguments> {
@@ -222,6 +221,8 @@ fn parse_args() -> Result<Arguments> {
     let mut repeat = 1usize;
     let mut timing = false;
     let mut metal = false;
+    let mut metal_mmap = false;
+    let mut metal_original_attention = false;
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
@@ -229,6 +230,8 @@ fn parse_args() -> Result<Arguments> {
             "--trace" => trace = true,
             "--timing" => timing = true,
             "--metal" => metal = true,
+            "--metal-mmap" => metal_mmap = true,
+            "--metal-original-attention" => metal_original_attention = true,
             "--repeat" => {
                 i += 1;
                 let value = raw.get(i).context("--repeat requires a positive integer")?;
@@ -241,8 +244,10 @@ fn parse_args() -> Result<Arguments> {
         i += 1;
     }
     if positional.len() != 2 {
-        bail!("usage: apple_reference MODEL_DIR CASES_JSON [--inputs-only | --trace] [--repeat N] [--timing] [--metal]");
+        bail!("usage: apple_reference MODEL_DIR CASES_JSON [--inputs-only | --trace] [--repeat N] [--timing] [--metal [--metal-mmap] [--metal-original-attention]]");
     }
+    if metal_original_attention && !metal { bail!("--metal-original-attention requires --metal"); }
+    if metal_mmap && !metal { bail!("--metal-mmap requires --metal"); }
     if inputs_only && trace {
         bail!("--inputs-only and --trace cannot be used together");
     }
@@ -260,6 +265,8 @@ fn parse_args() -> Result<Arguments> {
         repeat,
         timing,
         metal,
+        metal_mmap,
+        metal_original_attention,
     })
 }
 
@@ -281,9 +288,13 @@ fn main() -> Result<()> {
         Device::Cpu
     };
     eprintln!("Backend: {} / F32", if args.metal { "Candle Metal GPU" } else { "Candle CPU" });
+    let load_options = RustLoadOptions {
+        metal_weight_loading: if args.metal_mmap { MetalWeightLoading::Mmap } else { MetalWeightLoading::Stream },
+        metal_attention_optimizations: !args.metal_original_attention,
+    };
     if args.trace {
         let mut processor = prepare_processor(model_dir)?;
-        let encoder = load_trace_encoder(model_dir, &device)?;
+        let encoder = load_trace_encoder(model_dir, &device, load_options)?;
         for case in &cases {
             println!("{}", trace_record(case, &mut processor, &encoder, &device)?);
         }
@@ -291,7 +302,7 @@ fn main() -> Result<()> {
     }
 
     let loading = Instant::now();
-    let mut model = GLiNER2::load(model_dir, &device, DType::F32)?;
+    let mut model = GLiNER2::load_with_options(model_dir, &device, DType::F32, load_options)?;
     // Charge queued GPU initialization work to loading, not the first request.
     device.synchronize().context("synchronizing model initialization")?;
     if args.timing {
