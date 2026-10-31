@@ -50,7 +50,7 @@ export function DocsApple() {
         <P>
           Existing Rust CPU and CUDA behavior is unchanged unless you opt in. The demo’s optional
           static-library/C bridge integration and its platform requirements are described in{" "}
-          <a class="text-accent underline" href="https://github.com/apiplant/gliner-rs/blob/cd7b50f6ac7b5b395b92c373397ef19368f03a55/docs/CANDLE_METAL.md" target="_blank" rel="noreferrer noopener">the Candle Metal build notes</a>.
+          <a class="text-accent underline" href="https://github.com/apiplant/gliner-rs/blob/299797591d88245846a610bfc901c7267e0a3de3/docs/CANDLE_METAL.md" target="_blank" rel="noreferrer noopener">the Candle Metal build notes</a>.
         </P>
       </Section>
 

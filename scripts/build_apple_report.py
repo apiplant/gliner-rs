@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 IMPLEMENTATION_COMMIT = "450367eb006a1d2ee088db343ef26a11a18aafd5"
-CANDLE_IMPLEMENTATION_REF = "cd7b50f6ac7b5b395b92c373397ef19368f03a55"
+CANDLE_IMPLEMENTATION_REF = "299797591d88245846a610bfc901c7267e0a3de3"
 REPOSITORY_URL = "https://github.com/apiplant/gliner-rs"
 
 
