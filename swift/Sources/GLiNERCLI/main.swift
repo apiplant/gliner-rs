@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import GLiNERMLX
 import MLX
 
@@ -85,13 +86,16 @@ func positiveInt(_ flag: String, default fallback: Int) throws -> Int {
     return result
 }
 func note(_ text: String) { FileHandle.standardError.write(Data((text + "\n").utf8)) }
+func elapsedSeconds(since start: UInt64) -> Double {
+    Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
+}
 func emit(_ object: Any) throws {
     let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed])
-    print(String(decoding: data, as: UTF8.self))
+    FileHandle.standardOutput.write(data + Data([10]))
 }
 func emit(_ result: JSONValue) throws {
     let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-    print(String(decoding: try encoder.encode(result), as: UTF8.self))
+    FileHandle.standardOutput.write(try encoder.encode(result) + Data([10]))
 }
 func inputObject(_ input: PreparedInput) -> [String: Any] {
     ["text": input.text, "input_ids": input.inputIds, "word_positions": input.wordPositions,
@@ -174,16 +178,16 @@ func run(precision: ModelPrecision = .float32, runtimeConfiguration: RuntimeConf
         }
         return
     }
-    let start = Date(), limit = try positiveInt("--max-tokens", default: 4096)
+    let start = DispatchTime.now().uptimeNanoseconds, limit = try positiveInt("--max-tokens", default: 4096)
     note("Loading \(directory.lastPathComponent) (\(precision.rawValue), \(arguments.contains("--cpu") ? "CPU" : "Metal GPU"))…")
     let model = try GLiNERModel(modelDirectory: directory, precision: precision, maxInputTokens: limit,
                                 runtimeConfiguration: runtimeConfiguration)
-    note(String(format: "Loaded in %.6f s", Date().timeIntervalSince(start)))
+    note(String(format: "Loaded in %.6f s", elapsedSeconds(since: start)))
     let repetitions = try positiveInt("--repeat", default: 1)
     for (index, request) in requests.enumerated() {
         model.wordSplitter = request.wordSplitter
         for repetition in 0..<repetitions {
-            let started = Date()
+            let started = DispatchTime.now().uptimeNanoseconds
             if arguments.contains("--trace") {
                 try autoreleasepool {
                 let input = try model.prepare(request.text, schema: request.schema, maxWords: request.options.maxWords)
@@ -199,7 +203,7 @@ func run(precision: ModelPrecision = .float32, runtimeConfiguration: RuntimeConf
                 try emit(model.extractLong(request.text, schema: request.schema, options: request.options, chunks: chunks))
             } else { try emit(model.extract(request.text, schema: request.schema, options: request.options)) }
             if arguments.contains("--trace") && runtimeConfiguration.clearCacheAfterRequest { GLiNERRuntime.releaseUnusedMemory() }
-            note(String(format: "Case %d/%d, run %d: %.6f s", index + 1, requests.count, repetition + 1, Date().timeIntervalSince(started)))
+            note(String(format: "Case %d/%d, run %d: %.6f s", index + 1, requests.count, repetition + 1, elapsedSeconds(since: started)))
         }
     }
 }

@@ -5,6 +5,8 @@ examples/dino/game/
 swift/.build/
 swift/.swiftpm/
 .derivedData/
+.derivedData-candle/
+.DS_Store
 *.xcuserstate
 xcuserdata/
 __pycache__/

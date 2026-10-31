@@ -1,7 +1,7 @@
 //! Export GLiNER inputs/results for the Swift/Apple port.
 //!
 //! Usage: cargo run --release --example apple_reference -- MODEL_DIR CASES_JSON
-//!        [--inputs-only | --trace]
+//!        [--inputs-only | --trace] [--metal] [--repeat N] [--timing]
 
 use anyhow::{bail, Context, Result};
 use candle_core::{DType, Device, Tensor};
@@ -170,29 +170,27 @@ fn input_record(case: &Value, processor: &mut Processor) -> Result<Value> {
     }))
 }
 
-fn load_trace_encoder(model_dir: &Path) -> Result<DebertaV2> {
+fn load_trace_encoder(model_dir: &Path, device: &Device) -> Result<DebertaV2> {
     let (_, encoder_config) = load_configs(model_dir).context("loading checkpoint configs")?;
     let EncoderConfig::Deberta(config) = encoder_config else {
         bail!("--trace currently supports DeBERTa-v2 encoder checkpoints only");
     };
-    let device = Device::Cpu;
     let weights = model_dir.join("model.safetensors");
     // SAFETY: the checkpoint must not be modified while its memory map is open.
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights], DType::F32, &device) }
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights], DType::F32, device) }
         .with_context(|| format!("mapping {}", weights.display()))?;
     DebertaV2::load(vb.pp("encoder"), &config).context("loading DeBERTa-v2 encoder")
 }
 
-fn trace_record(case: &Value, processor: &mut Processor, encoder: &DebertaV2) -> Result<Value> {
+fn trace_record(case: &Value, processor: &mut Processor, encoder: &DebertaV2, device: &Device) -> Result<Value> {
     set_splitter(processor, case);
     let (_original, prepared) = case_input(case, processor)?;
     let sequence_len = prepared.input_ids.len();
     if sequence_len > MAX_TRACE_TOKENS {
         bail!("--trace only accepts up to {MAX_TRACE_TOKENS} input tokens; case has {sequence_len}");
     }
-    let device = Device::Cpu;
-    let ids = Tensor::from_vec(prepared.input_ids.clone(), (1, sequence_len), &device)?;
-    let mask = Tensor::ones((1, sequence_len), DType::F32, &device)?;
+    let ids = Tensor::from_vec(prepared.input_ids.clone(), (1, sequence_len), device)?;
+    let mask = Tensor::ones((1, sequence_len), DType::F32, device)?;
     let states = encoder.forward(&ids, &mask)?.to_dtype(DType::F32)?.contiguous()?;
     let encoder_shape = states.dims().to_vec();
     let encoder_values = states.flatten_all()?.to_vec1::<f32>()?;
@@ -213,6 +211,7 @@ struct Arguments {
     trace: bool,
     repeat: usize,
     timing: bool,
+    metal: bool,
 }
 
 fn parse_args() -> Result<Arguments> {
@@ -222,12 +221,14 @@ fn parse_args() -> Result<Arguments> {
     let mut trace = false;
     let mut repeat = 1usize;
     let mut timing = false;
+    let mut metal = false;
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
             "--inputs-only" => inputs_only = true,
             "--trace" => trace = true,
             "--timing" => timing = true,
+            "--metal" => metal = true,
             "--repeat" => {
                 i += 1;
                 let value = raw.get(i).context("--repeat requires a positive integer")?;
@@ -240,7 +241,7 @@ fn parse_args() -> Result<Arguments> {
         i += 1;
     }
     if positional.len() != 2 {
-        bail!("usage: apple_reference MODEL_DIR CASES_JSON [--inputs-only | --trace] [--repeat N] [--timing]");
+        bail!("usage: apple_reference MODEL_DIR CASES_JSON [--inputs-only | --trace] [--repeat N] [--timing] [--metal]");
     }
     if inputs_only && trace {
         bail!("--inputs-only and --trace cannot be used together");
@@ -258,6 +259,7 @@ fn parse_args() -> Result<Arguments> {
         trace,
         repeat,
         timing,
+        metal,
     })
 }
 
@@ -273,17 +275,25 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
+    let device = if args.metal {
+        Device::new_metal(0).context("initializing the requested Metal GPU (no CPU fallback)")?
+    } else {
+        Device::Cpu
+    };
+    eprintln!("Backend: {} / F32", if args.metal { "Candle Metal GPU" } else { "Candle CPU" });
     if args.trace {
         let mut processor = prepare_processor(model_dir)?;
-        let encoder = load_trace_encoder(model_dir)?;
+        let encoder = load_trace_encoder(model_dir, &device)?;
         for case in &cases {
-            println!("{}", trace_record(case, &mut processor, &encoder)?);
+            println!("{}", trace_record(case, &mut processor, &encoder, &device)?);
         }
         return Ok(());
     }
 
     let loading = Instant::now();
-    let mut model = GLiNER2::load(model_dir, &Device::Cpu, DType::F32)?;
+    let mut model = GLiNER2::load(model_dir, &device, DType::F32)?;
+    // Charge queued GPU initialization work to loading, not the first request.
+    device.synchronize().context("synchronizing model initialization")?;
     if args.timing {
         eprintln!("Loaded in {:.6} s", loading.elapsed().as_secs_f64());
     }

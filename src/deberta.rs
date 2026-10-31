@@ -153,8 +153,15 @@ impl DebertaV2 {
             DType::F64 => f64::MIN,
             _ => f32::MIN as f64,
         };
-        let floor = Tensor::full(min_value, (b, self.num_heads, t, t), &self.device)?
-            .to_dtype(self.dtype)?;
+        // Metal has no F64 storage. Construct the masking sentinel in F32
+        // before casting, rather than allocating an unsupported F64 temporary.
+        // The non-F64 sentinels retain the same values in their final dtype.
+        let floor = if self.dtype == DType::F64 {
+            Tensor::full(min_value, (b, self.num_heads, t, t), &self.device)?
+        } else {
+            Tensor::full(min_value as f32, (b, self.num_heads, t, t), &self.device)?
+                .to_dtype(self.dtype)?
+        };
 
         let scale = ((self.head_dim * 3) as f64).sqrt();
         for layer in &self.layers {

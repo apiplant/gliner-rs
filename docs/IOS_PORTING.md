@@ -61,9 +61,12 @@ ancora stata compilata un'app MLX né verificato un iPhone fisico.
 [Candle 0.11](https://github.com/huggingface/candle/blob/0.11.0/candle-core/Cargo.toml)
 ha un backend Metal e percorsi specifici iOS. Il suo
 [wrapper Metal](https://github.com/huggingface/candle/blob/0.11.0/candle-metal-kernels/src/metal/device.rs)
-usa `MTLCopyAllDevices`: l'header del SDK locale lo dichiara disponibile da iOS 18.
-Un deployment target inferiore per questa alternativa richiede adattamento e
-verifica. La presenza del backend non prova la compatibilità end-to-end su iPhone.
+chiama `MTLCopyAllDevices` tramite `objc2-metal`. Verifica successiva: la versione
+risolta `objc2-metal 0.3.2` implementa questa funzione su iOS usando
+`MTLCreateSystemDefaultDevice`; il nome non impone quindi iOS 18. La build
+dichiara iOS 17, ma la versione minima del sistema non è stata provata su un
+dispositivo reale. Il percorso Rust/Candle Metal è ora implementato e confrontato
+con MLX nella [guida dedicata](CANDLE_METAL.md) e nel report HTML.
 
 ## Checkpoint e memoria
 

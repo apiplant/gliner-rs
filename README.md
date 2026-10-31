@@ -1,6 +1,8 @@
 # gliner-rs
 
-The native Apple port for **iOS and macOS on Apple Silicon** is in [`swift/`](swift/README.md).
+For **iOS and macOS on Apple Silicon**, the existing Rust model can use
+[Candle Metal](docs/CANDLE_METAL.md). Enable the `metal` Cargo feature and select
+`--metal`; CPU remains the default. A Swift/MLX alternative is in [`swift/`](swift/README.md).
 It uses MLX with Metal acceleration, includes a demo app in [`ios/`](ios/), and supports
 configurable precision and memory profiles. See the [Apple validation report](docs/APPLE_VALIDATION.md)
 for checkpoint coverage, parity checks, and measured Mac performance.

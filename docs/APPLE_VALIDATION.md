@@ -3,6 +3,41 @@
 31 ottobre 2026. Riferimento Rust upstream:
 `c5c65948478d687190f9c83fcc51d3afa15b5f2a`.
 
+## Confronto Rust/Candle Metal e Swift/MLX Metal
+
+È disponibile anche il backend Rust Metal: feature Cargo `metal`, flag CLI
+`--metal` e libreria statica con interfaccia C per la demo iPhone/macOS.
+Il modello Rust viene riutilizzato; l'unica correzione numerica necessaria evita
+un temporaneo F64 nella maschera DeBERTa. Dettagli in [CANDLE_METAL.md](CANDLE_METAL.md).
+
+Le build Release dei due motori producono output equivalenti su **28/28 casi
+Small e 28/28 Multi**, sia su Mac sia su iPhone, senza eccezioni d'ordine nel
+confronto diretto. Rispetto alla CPU, Multi conserva una sola eccezione near-tie
+Berlin: 27/28 strict e 28/28 con la regola già documentata. La tolleranza sulle
+confidenze resta `1e-4`; le tracce encoder Candle sono state verificate su Mac,
+non esportate dall'interfaccia C su iPhone.
+
+Benchmark: tre richieste italiane, Small e Multi, tre trial per motore, cinque
+warm-up e trenta misure per richiesta. Sono 1.260 esecuzioni GPU e 630 coppie
+di output strict per ciascun dispositivo. Sul Mac M3 Pro, MLX riduce la mediana
+di circa 23–35%; sull'iPhone 17 Pro di circa 30–43%. Il picco RSS del processo,
+incluso il caricamento, è circa dimezzato. Questo non dimostra un dimezzamento
+permanente della memoria residente. Candle carica il modello più rapidamente
+nei processi con cache di sistema/shader già calde.
+
+La condizione concordata per rimuovere Swift richiede output, prestazioni e
+memoria comparabili. Le misure non la soddisfano: il backend Swift/MLX rimane.
+Passano 17 test Rust, 2 test FFI e 41 test Python. Il precedente run XCTest
+rimane di 32 test senza skip.
+
+Metodi, p95, campioni, limiti e hash sono nel
+[report HTML](../reports/gliner-apple-report.html) e nei dati
+[Mac](benchmarks/candle-vs-mlx-mac.json),
+[iPhone](benchmarks/candle-vs-mlx-iphone.json) e
+[validazione](benchmarks/candle-metal-evaluation.json).
+Le sezioni seguenti conservano anche le verifiche MLX precedenti; il confronto
+CPU/GPU storico non è un confronto Candle Metal contro MLX Metal.
+
 ## Cosa è disponibile
 
 - Package Swift `GLiNERMLX`, con inferenza MLX e GPU Metal su Apple Silicon.
@@ -14,7 +49,7 @@
   DeBERTa-v2. Entità, classificazione, relazioni, strutture natural/latent/anchorless,
   choice fields, attributi, batch e documenti lunghi.
 
-I checkpoint legacy Span e gli encoder ModernBERT sono rifiutati esplicitamente.
+Nel port Swift/MLX, i checkpoint legacy Span e gli encoder ModernBERT sono rifiutati esplicitamente.
 La quantizzazione non è implementata. Non è stato pubblicato nulla su App Store.
 
 ## Ambiente effettivo
@@ -158,7 +193,7 @@ Il riferimento CPU usa Rust 1.99.1 e Candle con GEMM puro Rust, senza MKL,
 Accelerate o CUDA. La configurazione predefinita usa 8 thread (`RAYON_NUM_THREADS=8`);
 la configurazione alternativa sintonizzata usa 4 (`RAYON_NUM_THREADS=4` e le
 variabili ambiente correlate impostate a 4), lasciando il pool kernel Candle al
-default di 8 thread. La mediana CPU sintonizzata per le tre richieste è
+default di 6 thread su questo Mac (sei core performance). La mediana CPU sintonizzata per le tre richieste è
 179,877 / 269,625 / 380,241 ms. Swift usa MLX F32 sulla GPU Metal, TF32 disattivato
 e cache automatica, senza pulire le cache di filesystem o shader fra i processi.
 

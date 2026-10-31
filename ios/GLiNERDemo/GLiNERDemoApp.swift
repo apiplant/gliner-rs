@@ -25,7 +25,9 @@ enum DemoRuntimeSettings {
 struct GLiNERDemoApp: App {
     init() {
         // Apply TF32 before the first model operation; subsequent errors are surfaced on extraction.
-        try? GLiNERRuntime.configure(DemoRuntimeSettings.startupConfiguration())
+        let arguments = ProcessInfo.processInfo.arguments
+        let candleTest = arguments.firstIndex(of: "--self-test-backend").map { $0 + 1 < arguments.count && arguments[$0 + 1] == "candle" } ?? false
+        if !candleTest { try? GLiNERRuntime.configure(DemoRuntimeSettings.startupConfiguration()) }
     }
     var body: some Scene { WindowGroup { ContentView() } }
 }

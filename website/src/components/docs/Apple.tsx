@@ -5,10 +5,11 @@ import { CopyBlock } from "../Code";
 export function DocsApple() {
   return (
     <DocsLayout>
-      <H1>Apple: Swift and MLX</H1>
+      <H1>Apple Silicon: MLX and Candle Metal</H1>
       <Lead>
-        Run the native Swift implementation on Apple Silicon with MLX and Metal. This is a
-        separate inference path from the Rust CPU/CUDA implementation and the browser WASM build.
+        The native Swift/MLX backend and the Rust/Candle backend can both run on Metal. The
+        optional Candle Metal route keeps inference in Rust; it does not replace the Swift package
+        or the macOS/iOS demo.
       </Lead>
 
       <Section>
@@ -25,6 +26,31 @@ export function DocsApple() {
           operations using Metal. The implementation supports boundary checkpoints with a
           DeBERTa-v2 encoder, including GLiNER2.5 small, base and multi. Span architecture and
           ModernBERT checkpoints are not supported; quantization is not currently available.
+        </P>
+        <P>
+          The optional Rust/Candle Metal library declares macOS 14 and iOS 17 targets as well. A
+          physical iPhone 17 Pro was tested with both engines in Release. The declared minimum
+          OS versions have not been tested on devices running those exact versions.
+        </P>
+      </Section>
+
+      <Section>
+        <H2 id="candle-metal">Optional Rust/Candle Metal CLI</H2>
+        <P>
+          Rust continues to use CPU by default. The <IC>metal</IC> feature plus <IC>--metal</IC>
+          explicitly selects Candle’s Metal device and fails if it is unavailable; it never falls
+          back to CPU. The command below uses F32 and the already downloaded local checkpoint:
+        </P>
+        <CopyBlock command={`cargo +1.99.1 run --release --no-default-features --features cli,metal --bin gliner -- \\
+  --metal \\
+  --model .models/gliner2.5-multi-v1 \\
+  --text 'Michele vive a Milano.' \\
+  --entities person,location \\
+  --spans --confidence`} />
+        <P>
+          Existing Rust CPU and CUDA behavior is unchanged unless you opt in. The demo’s optional
+          static-library/C bridge integration and its platform requirements are described in{" "}
+          <a class="text-accent underline" href="https://github.com/apiplant/gliner-rs/blob/codex/apple-mlx-port/docs/CANDLE_METAL.md" target="_blank" rel="noreferrer noopener">the Candle Metal build notes</a>.
         </P>
       </Section>
 
@@ -130,11 +156,13 @@ print(try await extractor.extract("Michele vive a Milano e lavora per Acme."))`}
       <Section>
         <H2 id="validation">Validation and measurements</H2>
         <P>
-          On Mac, F32 small, base and multi passed 28 test cases with a confidence tolerance of
-          0.0001. Multi has one near-tie entity reorder: 27 cases match strict ordering and all 28
-          pass with that exception. Physical iPhone tests covered small (28/28 in strict order)
-          and multi (the same near-tie exception); encoder values were compared with an absolute
-          tolerance of 0.001. These results cover the tested cases, not every input.
+          The Swift/MLX path on Mac passed the 28-case F32 suite for small, base and multi at a
+          confidence tolerance of 0.0001. Multi has one near-tie entity reorder: 27 cases match
+          strict ordering and all 28 pass when that narrow exception is allowed. On a physical
+          iPhone, MLX passed small in strict order and multi with the same near-tie exception; full
+          encoder values were compared at an absolute tolerance of 0.001. Separately, the Mac
+          Candle Metal versus MLX Metal parity run returned strict-order agreement on all 28 cases
+          for both small and multi. These checks cover the test cases, not every input.
         </P>
         <P>
           F16 is approximate. In an exploratory 21-case comparison at a looser 0.02 confidence
@@ -142,16 +170,49 @@ print(try await extractor.extract("Michele vive a Milano e lavora per Acme."))`}
           confidence values and selected candidates. Evaluate it on your own workload.
         </P>
         <P>
-          In a separate paired comparison on an M3 Pro, Release builds using the multi checkpoint
-          and F32 measured warm median Rust/Candle CPU times of 201, 285 and 386 ms versus
-          Swift/MLX Metal GPU times of 21, 28 and 37 ms for 64, 97 and 130-word inputs. Each
-          configuration had five warm-up calls and 30 measured calls; CPU used eight Rayon
-          threads. This compares runtimes and devices, not language speed. Cold start and other
-          workloads can differ.
+          A new Metal-to-Metal comparison used Release builds on an M3 Pro, F32, pinned small and
+          multi checkpoints, and three Italian extraction requests of 64, 97 and 130 words. Each
+          request/backend pair ran in a fresh process across three independent trials, with five
+          warm-ups and 30 measured calls per trial. Backend order alternated. Timings include
+          preparation, inference and JSON output; model loading was measured separately. Before
+          timing, prepared input records matched exactly. Across 630 per-run GPU output pairs, spans,
+          labels, order and confidence values stayed within the strict comparison tolerance.
+        </P>
+        <FlagTable rows={[
+          { flag: "small · 64 / 97 / 130 words", meaning: "Candle Metal 13.2 / 18.7 / 23.0 ms; MLX Metal 10.2 / 12.2 / 15.1 ms." },
+          { flag: "multi · 64 / 97 / 130 words", meaning: "Candle Metal 25.0 / 35.6 / 49.6 ms; MLX Metal 18.8 / 24.9 / 33.4 ms." },
+        ]} />
+        <P>
+          These warm medians show MLX 23–35% lower latency on these six Mac workloads. Peak process
+          RSS, including loaded weights, was about 0.81 versus 0.40 GB for small and 2.69 versus
+          1.34 GB for multi (Candle versus MLX). These are measurements of complete processes, not
+          GPU-only allocation totals, persistent resident-memory differences or memory guarantees. The report includes p95, individual
+          trials, model-load timings, checksums and the complete method. It does not establish a
+          general advantage across devices, tasks or workloads.
+        </P>
+        <P>
+          This run establishes strict output parity, but performance and process memory are not
+          comparable: MLX was faster and used about half the peak RSS on these workloads. The
+          evidence therefore does not meet a criterion that would make the Swift/MLX path
+          redundant based on comparable outputs, performance and memory.
+        </P>
+        <P>
+          The physical iPhone 17 Pro Release comparison also passed all 28 cases in direct
+          GPU-to-GPU order for Small and Multi, plus all 630 paired benchmark outputs. Across
+          the six workloads, MLX median request latency was 30–43% lower. Both engines ran in
+          the same SwiftUI harness; each process covered all three requests. Candle had lower
+          model-load times with warm system/shader caches. Phone timing excludes diagnostic
+          JSONL writing, so absolute phone and CLI times should not be compared directly.
+        </P>
+        <P>
+          An earlier comparison of Rust/Candle CPU against Swift/MLX Metal reported a 9.59–10.35×
+          median latency ratio on the same three inputs. It changed both the runtime and the device
+          path, so it is historical CPU-versus-GPU context rather than evidence about Candle Metal
+          versus MLX Metal.
         </P>
         <P>
           See the <a class="text-accent underline" href="/reports/gliner-apple-report.html" target="_blank" rel="noreferrer noopener">Apple implementation and benchmark report</a> for
-          methods, p95, numerical results and source data.
+          the full measurements and validation evidence.
         </P>
         <P>
           The model-dependent Swift tests skip without a local checkpoint. Download small to

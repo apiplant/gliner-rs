@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Technical implementation, numerical validation and CPU/GPU benchmark report for the GLiNER2.5 Swift/MLX port on macOS and iOS.">
+<meta name="description" content="GLiNER2.5 Candle Metal versus Swift/MLX: numerical validation, latency and memory measurements on macOS Apple Silicon and a physical iPhone.">
 <title>GLiNER2.5 Apple Backend — Technical Report</title>
 <style>
 :root{--bg:#f8f9fa;--surface:#fff;--ink:#20272d;--muted:#59666f;--line:#d6dde2;--accent:#245a7b;--gpu:#2b7381;--cpu:#926e58;--track:#e8edf0;--note:#edf3f7;--warn:#fff5e6;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -21,23 +21,46 @@
 <main class="shell">
 <div class="title-block">
 <div class="eyebrow">Implementation, numerical validation, and performance</div>
-<h1>GLiNER2.5 on MLX and Metal<span>Technical report — macOS Apple Silicon and iOS</span></h1>
-<p class="abstract">This report documents the Swift port of the Boundary/DeBERTa-v2 inference path in <code>apiplant/gliner-rs</code>. It describes the CPU/GPU execution boundary, checkpoint compatibility, runtime controls, numerical agreement with Rust/Candle, and measurements on an M3 Pro Mac and a physical iPhone 17 Pro. Performance results apply to the recorded workloads and configurations.</p>
+<h1>GLiNER2.5: Candle Metal and Swift/MLX<span>Technical report — macOS Apple Silicon and iOS</span></h1>
+<p class="abstract">This report compares two Apple GPU paths for the Boundary/DeBERTa-v2 models in <code>apiplant/gliner-rs</code>: the existing Rust implementation using Candle Metal, and the Swift implementation using MLX Metal. Correctness, request latency, model loading and process memory are evaluated separately. The earlier CPU/GPU benchmark remains as historical evidence and does not determine the backend choice.</p>
 <p class="caption">Implementation baseline: <a href="https://github.com/apiplant/gliner-rs/commit/450367eb006a1d2ee088db343ef26a11a18aafd5"><code>450367e</code></a>. Review and documentation updates: <a href="https://github.com/apiplant/gliner-rs/pull/1">PR #1</a>.</p>
-<dl class="metadata"><div><dt>Implementation</dt><dd>Swift library, CLI, SwiftUI demo<br>MLX Swift 0.33.0 / Metal</dd></div><div><dt>Reference</dt><dd>Rust/Candle CPU F32<br>Upstream <code>c5c65948</code></dd></div><div><dt>Build environment</dt><dd>Xcode 27.2 / Swift 6.4.2<br>Rust 1.99.1</dd></div><div><dt>Verification status</dt><dd>32 Swift + 36 Python tests passed<br>Device parity results below</dd></div></dl>
+<p class="caption">Candle comparison implementation: <a href="https://github.com/apiplant/gliner-rs/tree/__CANDLE_REF__">source revision</a>. Executable and numerical-source hashes are embedded with each benchmark.</p>
+<dl class="metadata"><div><dt>GPU implementations</dt><dd>Rust / Candle 0.11.0 Metal<br>Swift / MLX Swift 0.33.0</dd></div><div><dt>Reference</dt><dd>Rust/Candle CPU F32<br>Upstream <code>c5c65948</code></dd></div><div><dt>Build environment</dt><dd>Xcode 27.2 / Swift 6.4.2<br>Rust 1.99.1</dd></div><div><dt>Verification status</dt><dd>17 Rust + 2 FFI + 41 Python passed<br>32 XCTest in prior validated run</dd></div></dl>
 </div>
 </main>
-<div class="nav"><nav class="shell" aria-label="Report sections"><a href="#scope">01 Scope</a><a href="#implementation">02 Implementation</a><a href="#models">03 Checkpoints</a><a href="#runtime">04 Runtime</a><a href="#performance">05 Performance</a><a href="#validation">06 Validation</a><a href="#device">07 Device / memory</a><a href="#reproduction">08 Reproduction</a><a href="#limits">09 Limitations</a></nav></div>
+<div class="nav"><nav class="shell" aria-label="Report sections"><a href="#metal-evaluation">Metal comparison</a><a href="#scope">01 Scope</a><a href="#implementation">02 Implementation</a><a href="#models">03 Checkpoints</a><a href="#runtime">04 Runtime</a><a href="#performance">05 Historical baseline</a><a href="#validation">06 Validation</a><a href="#device">07 Device / memory</a><a href="#reproduction">08 Reproduction</a><a href="#limits">09 Limitations</a></nav></div>
 <div class="shell">
+
+<section id="metal-evaluation">
+<h2>Candle Metal versus MLX Metal</h2>
+<div class="note"><p id="metal-decision">Recorded GPU comparison evidence is loaded from the embedded data.</p></div>
+<p id="metal-rationale" class="small"></p>
+<h3>Correctness gate</h3>
+<p class="small">The full 28-case suite covers entities, classification, relations, records and attributes. Exact discrete values and array order are checked; floating confidence values use the existing absolute tolerance of <code>1e-4</code>. Full final encoder outputs use <code>1e-3</code>. Agreement with the CPU reference and direct agreement between GPU engines are reported separately; a bounded near-tie exception against CPU is never presented as strict parity.</p>
+<div class="table-wrap"><table><thead><tr><th>Target / checkpoint</th><th>Compared outputs</th><th class="num">Strict cases</th><th class="num">Max confidence delta</th><th>Notes</th></tr></thead><tbody id="metal-validation"></tbody></table></div>
+<h3>Latency on the same GPU</h3>
+<p class="small">Both engines use F32; the MLX TF32 option is disabled. Three independent trials alternate backend order. On Mac, each request/backend starts a new process. On iPhone, a new process per backend/trial executes all three requests; each request has five warm-up calls followed by 30 measured calls. All 630 paired outputs per device, including warm-ups, agree strictly within the numeric tolerance. Latency is the median of process medians; p95 pools 90 measured calls per request/backend and is descriptive. Individual samples, trial ranges and build/checkpoint hashes are embedded below.</p>
+<div class="controls"><div class="legend"><span><i class="swatch cpu" aria-hidden="true"></i>Rust / Candle Metal F32</span><span><i class="swatch" aria-hidden="true"></i>Swift / MLX Metal F32</span></div><div class="control-group"><div class="control"><label for="metal-target">Device</label><select id="metal-target"><option value="mac">Mac · M3 Pro</option><option value="iphone">iPhone · physical device</option></select></div><div class="control"><label for="metal-model">Checkpoint</label><select id="metal-model"><option value="small">Small</option><option value="multi">Multi</option></select></div></div></div>
+<div class="chart"><div id="metal-bars" role="img" aria-label="Candle Metal and MLX Metal request latency"></div></div>
+<p class="caption" id="metal-method"></p>
+<div class="table-wrap"><table><thead><tr><th>Request</th><th class="num">Candle median / p95 (ms)</th><th class="num">MLX median / p95 (ms)</th><th class="num">Candle / MLX</th><th class="num">Load Candle / MLX (ms)</th><th class="num">Candle peak RSS (MiB)</th><th class="num">MLX peak RSS (MiB)</th></tr></thead><tbody id="metal-table"></tbody></table></div>
+<p class="small" id="metal-memory-note"></p>
+<p class="small">Mac CLI timings include JSON serialization and synchronous stdout writing. iPhone timings include the Rust JSON bridge and output conversion, but exclude writing diagnostic JSONL records and actor/UI scheduling. Absolute times must not be compared across these two harnesses. Mac MLX uses automatic cache retention; iPhone MLX uses the platform policy of 20 MiB with clearing after each request. No cache policy or allocator tuning was added to Candle.</p>
+<p class="small">Candle has lower model-load times in these warmed-cache trials. The first recorded iPhone Small Candle smoke run took 7.656 s to load; subsequent formal trials took approximately 0.14 s. Shader compilation and system-cache effects were not timed separately. These observations are not a controlled cold-start experiment. Load-inclusive peak RSS can include mapped file pages, copies and temporary buffers, and does not establish a permanent twofold resident-memory difference. No steady-idle residency measurement was made.</p>
+<h3>Implementation cost and remaining limits</h3>
+<p class="small">The Rust model is reused. The required DeBERTa change avoids allocating an unsupported F64 mask-floor temporary before converting it to F32; the final masking value is preserved. Metal is opt-in and initialization failure is an error, with no CPU fallback. The iPhone integration uses a Rust static library and a small C boundary called from SwiftUI. A Swift rewrite is not required to use Metal or build an iPhone app.</p>
+<p class="small">These workloads establish numerical agreement and local performance for the tested checkpoints. They do not measure dataset-level extraction quality, energy, sustained thermal behavior, every Apple device, or minimum supported OS versions. Similar output does not by itself establish similar performance or memory use.</p>
+</section>
 
 <section id="scope">
 <h2><span class="n">01</span>Scope and repository structure</h2>
-<p>The port is an additional backend in the existing repository. The Rust library remains available as the reference implementation. The Apple implementation is written in Swift using MLX tensor operations; MLX supplies the Metal kernels. No custom Metal Shading Language kernels were added.</p>
+<p>Both backends live in the existing repository. Rust/Candle now supports opt-in Metal in addition to its existing CPU/CUDA paths. The Swift implementation uses MLX tensor operations. Both runtimes supply their own Metal kernels; no custom Metal Shading Language kernels were added for this project. The following implementation and runtime sections primarily document the Swift/MLX path.</p>
 <div class="table-wrap"><table><thead><tr><th>Path</th><th>Responsibility</th></tr></thead><tbody>
 <tr><td><code>swift/Sources/GLiNERMLX/</code></td><td>Tokenizer, schema preparation, DeBERTa encoder, Boundary heads, decoding, batching, chunking, runtime configuration</td></tr>
 <tr><td><code>swift/Sources/GLiNERCLI/</code></td><td>Local model loading, extraction requests, diagnostics and per-request timing</td></tr>
 <tr><td><code>ios/GLiNERDemo/</code></td><td>Shared SwiftUI application for iOS and macOS; serialized model worker and offline checkpoint reuse</td></tr>
-<tr><td><code>examples/apple_reference.rs</code></td><td>CPU reference exporter for inputs, encoder states, complete outputs and timing</td></tr>
+<tr><td><code>src/</code>, <code>examples/apple_reference.rs</code></td><td>Existing Rust model, opt-in Metal CLI, CPU/Metal output and encoder exporters</td></tr>
+<tr><td><code>ffi/</code></td><td>Rust static library and documented C ownership/error boundary for the Apple demo</td></tr>
 <tr><td><code>scripts/</code></td><td>Pinned checkpoint download, numerical comparison, Mac/device verification and benchmarks</td></tr>
 </tbody></table></div>
 <p class="small">Supported tasks: entity extraction, single/multi-label classification, relations, structured records in natural/latent/anchorless modes, choice fields, entity attributes, regex validators, overlap policies, padded batches, and long-document chunking. Legacy Span checkpoints, ModernBERT encoders and quantized weights are outside the implemented scope.</p>
@@ -71,7 +94,7 @@ next_hidden = LayerNorm(W2(GELU_erf(W1(attended))) + attended)</code></pre>
 <h2><span class="n">03</span>Checkpoint inventory</h2>
 <p>All three tested checkpoints contain 334 tensors stored as F32 in <code>model.safetensors</code>. The loader casts encoder tensors to the selected runtime precision and retains the extraction heads in F32. Parameter counts below are calculated from the safetensors headers, including the task heads.</p>
 <div class="table-wrap"><table><thead><tr><th>Variant</th><th class="num">Parameters</th><th class="num">Layers</th><th class="num">Hidden</th><th class="num">Heads</th><th class="num">FFN</th><th class="num">Vocabulary</th><th class="num">Weights, MB</th></tr></thead><tbody id="model-table"></tbody></table></div>
-<p class="caption">MB and GB use decimal bytes; MiB uses 2²⁰ bytes. Weight size excludes tokenizer/configuration files. Total download sizes and complete revision/checksum values are in the provenance table. The multilingual checkpoint is the model used for the performance measurements.</p>
+<p class="caption">MB and GB use decimal bytes; MiB uses 2²⁰ bytes. Weight size excludes tokenizer/configuration files. Total download sizes and revision/checksum values are in the provenance table. The new GPU comparison tests Small and Multi; the historical CPU/GPU and profile experiments use Multi.</p>
 <details><summary>Pinned revisions, download sizes and SHA-256</summary><div class="table-wrap"><table><thead><tr><th>Checkpoint</th><th class="num">Download bytes</th><th>Revision / weights SHA-256</th></tr></thead><tbody id="checkpoint-table"></tbody></table></div></details>
 <p class="small">The default input guard is 4,096 tokens <em>including the schema</em>. Oversized requests fail explicitly rather than silently truncating. <code>extractLong</code> splits text into overlapping word chunks and remaps/deduplicates predictions. <code>max_position_embeddings = 512</code> in the encoder configuration is not used as a silent 512-token truncation rule.</p>
 </section>
@@ -90,7 +113,8 @@ next_hidden = LayerNorm(W2(GELU_erf(W1(attended))) + attended)</code></pre>
 </section>
 
 <section id="performance">
-<h2><span class="n">05</span>macOS performance measurements</h2>
+<h2><span class="n">05</span>Historical CPU/GPU and MLX profile measurements</h2>
+<p class="small">This section preserves the earlier sessions and their original timer implementations. Use the Candle Metal comparison above to assess the two GPU backends; values from different sessions are not interchangeable baselines.</p>
 <h3>5.1 Experimental conditions</h3>
 <div class="table-wrap"><table><thead><tr><th>Item</th><th>Recorded condition</th></tr></thead><tbody>
 <tr><td>Host</td><td>Apple M3 Pro, 12 CPU cores (6 performance + 6 efficiency), 18 GiB unified memory, macOS 27.2</td></tr>
@@ -130,12 +154,12 @@ next_hidden = LayerNorm(W2(GELU_erf(W1(attended))) + attended)</code></pre>
 
 <section id="validation">
 <h2><span class="n">06</span>Numerical validation</h2>
-<p class="small">Build verification completed for the macOS CLI (Release), macOS demo (Release), physical iOS target (Debug), and iOS Simulator target (Debug). Simulator compilation was verified; simulator inference was not used as evidence for device correctness.</p>
+<p class="small">The comparison uses Release macOS executables and a Release app on the physical iPhone. Earlier verification also built the MLX macOS demo, iOS Debug and iOS Simulator Debug targets. Simulator inference is not evidence for device correctness. The new Rust FFI exports final outputs on iPhone; full Candle encoder traces were compared on Mac only.</p>
 <div class="table-wrap"><table><thead><tr><th>Layer of validation</th><th>Acceptance criterion</th><th>Observed result</th></tr></thead><tbody>
 <tr><td>Input preparation</td><td>Exact IDs, markers, word positions, text and offsets; no floating tolerance</td><td>92/92 cases per tested tokenizer (small and multi): 21 base + 64 Unicode/tokenizer + 7 advanced cases</td></tr>
 <tr><td>Final encoder output</td><td>Every value finite; maximum absolute difference ≤ <code>1e-3</code>; exact tensor metadata</td><td>Full final-output tensor comparisons on Mac and physical iPhone; detailed device results below</td></tr>
 <tr><td>Complete output</td><td>Exact text, labels, offsets and result counts; confidence absolute difference ≤ <code>1e-4</code></td><td>small/base preserve order; multi has one explicitly reported near-tie exception</td></tr>
-<tr><td>Unit/tool tests</td><td>No failures; no skipped Swift tests</td><td>32 XCTest + 36 Python tests passed; 10 invalid CLI argument combinations rejected</td></tr>
+<tr><td>Unit/tool tests</td><td>No failures</td><td>17 Rust + 2 FFI + 41 Python tests passed; previous 32 XCTest run had no skips; 10 invalid CLI argument combinations rejected</td></tr>
 </tbody></table></div>
 <p class="small">The model-dependent XCTest cases use a local small checkpoint (or <code>GLINER_MODEL_DIR</code>) and skip if it is unavailable. The recorded 32-test run used a complete local checkpoint and had zero skips. Weights are not bundled as test resources; download small before verification to reproduce the complete test run.</p>
 <div class="table-wrap"><table><thead><tr><th>Platform / model</th><th class="num">Strict ordered cases</th><th class="num">Cases with reported tie handling</th><th>Note</th></tr></thead><tbody>
@@ -147,7 +171,7 @@ next_hidden = LayerNorm(W2(GELU_erf(W1(attended))) + attended)</code></pre>
 </tbody></table></div>
 <h3>Ordering exception</h3>
 <p class="small">In the long-input case (zero-based case 7), two “Berlin” entity spans at code-point offsets <code>[2701,2707)</code> and <code>[457,463)</code> swap order. The Rust confidence range is <code>1.1920928955078125e-7</code>; the MLX scores are tied. The comparator only accepts contiguous blocks of identical entity identities whose confidence range is at most <code>1e-6</code> on both sides. It records every accepted reorder. Record, relation and classification arrays remain strictly ordered.</p>
-<h3>Physical-device final encoder-output comparison</h3>
+<h3>Historical physical-device encoder comparison: MLX versus CPU</h3>
 <div class="table-wrap"><table><thead><tr><th>Checkpoint</th><th class="num">Cases</th><th class="num">Values compared</th><th class="num">Max absolute error</th><th class="num">Tolerance</th></tr></thead><tbody><tr><td>small / F32</td><td class="num">28</td><td class="num">1,024,128</td><td class="num">7.2479248e-5</td><td class="num">1e-3</td></tr><tr><td>multi / F32</td><td class="num">28</td><td class="num">2,592,768</td><td class="num">1.10270455e-4</td><td class="num">1e-3</td></tr></tbody></table></div>
 <p class="caption">The encoder tolerance and output-confidence tolerance are different. The multi maximum encoder error is larger than 1e-4 but below its declared 1e-3 bound. Maximum iPhone multi output-confidence difference was 1.3530254e-5.</p>
 <h3>Defects identified during verification</h3>
@@ -191,7 +215,22 @@ actor Extractor {
 
 <section id="reproduction">
 <h2><span class="n">08</span>Reproduction and evidence</h2>
-<p class="small">Run from the repository root. macOS CLI/app builds default to Release; tests, iOS and simulator builds default to Debug. Actual benchmark build hashes, complete requests, per-call timing samples, checkpoint checksums and method metadata are embedded below and stored in the linked JSON reports.</p>
+<p class="small">Run from the repository root. Comparison executables and Candle-enabled demo builds use Release. The original <code>build_apple.sh ios</code> and simulator commands default to Debug. Build hashes, complete requests, per-call timing samples, checkpoint checksums and method metadata are embedded below.</p>
+<div class="source-list"><a href="https://github.com/apiplant/gliner-rs/blob/__CANDLE_REF__/docs/benchmarks/candle-vs-mlx-mac.json">Candle / MLX Mac measurements</a><a href="https://github.com/apiplant/gliner-rs/blob/__CANDLE_REF__/docs/benchmarks/candle-vs-mlx-iphone.json">Candle / MLX iPhone measurements</a><a href="https://github.com/apiplant/gliner-rs/blob/__CANDLE_REF__/docs/benchmarks/candle-metal-evaluation.json">Correctness and backend decision</a><a href="https://github.com/apiplant/gliner-rs/blob/__CANDLE_REF__/docs/CANDLE_METAL.md">Rust/Candle build and integration guide</a></div>
+<pre><code># Same-GPU comparison on Mac: download BOTH checkpoints first.
+python3 scripts/download_apple_model.py --variant small
+python3 scripts/download_apple_model.py --variant multi
+cargo +1.99.1 build --release --locked --no-default-features --features metal --example apple_reference
+bash scripts/build_apple.sh macos
+python3 scripts/benchmark_metal_comparison.py
+
+# Build the comparative iPhone app; sign/install using your existing local profile.
+rustup +1.99.1 target add aarch64-apple-ios
+bash scripts/build_candle_apple.sh app-ios
+# Signing/install commands: docs/CANDLE_METAL.md
+python3 scripts/run_candle_iphone_suite.py DEVICE_ID --variant small
+python3 scripts/run_candle_iphone_suite.py DEVICE_ID --variant multi
+python3 scripts/build_apple_report.py --refresh-iphone-evidence</code></pre>
 <pre><code># Download pinned weights and verify file checksums.
 python3 scripts/download_apple_model.py --variant multi
 
@@ -230,7 +269,7 @@ python3 scripts/build_apple_report.py</code></pre>
 <tr><td>Numerical identity</td><td>F32 tolerance-based agreement; multi has one near-tie reorder. F16 is not parity-equivalent.</td><td>Model/task-specific regression evaluation before changing the default arithmetic</td></tr>
 <tr><td>GPU optimization</td><td>MLX operations and existing Metal kernels; dense relative attention; CPU candidate/record decoding</td><td>Profiling before fused attention, graph compilation, reduced synchronization or custom kernels; rerun full parity checks</td></tr>
 <tr><td>Memory / quantization</td><td>F32 checkpoints; optional F16 encoder; cache controls; no quantized load path</td><td>Quantization calibration and accuracy evaluation; matched peak-memory/energy measurements</td></tr>
-<tr><td>Performance coverage</td><td>One Mac; three batch-1 NER texts; one iPhone for correctness</td><td>Long-input scaling, batching, other tasks, other Apple chips and sustained workloads</td></tr>
+<tr><td>Performance coverage</td><td>One Mac and one physical iPhone; Small/Multi F32; three batch-1 NER texts; three alternating-order process trials</td><td>Long-input scaling, batching, other tasks, other Apple chips, thermal/energy instrumentation and sustained workloads</td></tr>
 <tr><td>Device coverage</td><td>Physical iPhone 17 Pro and Mac M3 Pro; minimum declared OS versions not exercised</td><td>Older-device memory/compatibility testing and minimum-OS execution</td></tr>
 <tr><td>Product distribution</td><td>Local development build and demo project</td><td>Application integration, lifecycle/memory-pressure handling, packaging and distribution validation</td></tr>
 </tbody></table></div>
@@ -252,6 +291,50 @@ const ratio = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumF
 const fmt = function (x) { return nf.format(x); };
 const esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
 const num = function (value) { return '<td class="num">' + value + '</td>'; };
+const M = D.metalComparison;
+function median(values) {
+ const x = values.filter(Number.isFinite).slice().sort(function (a,b) { return a-b; });
+ return x.length ? (x[Math.floor((x.length-1)/2)] + x[Math.floor(x.length/2)]) / 2 : null;
+}
+function memoryRange(values) {
+ const x = (values || []).filter(Number.isFinite);
+ return x.length ? fmt(Math.min.apply(null,x)/1048576) + '–' + fmt(Math.max.apply(null,x)/1048576) : 'not measured';
+}
+function drawMetal() {
+ const target = $('metal-target').value, model = $('metal-model').value;
+ const evidence = M && M[target];
+ const rows = evidence && evidence.comparisons ? evidence.comparisons.filter(function (r) { return r.model === model; }) : [];
+ if (!rows.length) {
+  $('metal-bars').textContent = 'No completed measurements recorded for this selection.';
+  $('metal-table').innerHTML = '';
+  $('metal-method').textContent = '';
+  $('metal-memory-note').textContent = '';
+  return;
+ }
+ const maximum = Math.max.apply(null,rows.map(function (r) { return Math.max(r.backends.candle_metal.median_of_trial_medians_ms,r.backends.mlx_metal.median_of_trial_medians_ms); })) * 1.05;
+ $('metal-bars').innerHTML = rows.map(function (r) {
+  const c = r.backends.candle_metal.median_of_trial_medians_ms, m = r.backends.mlx_metal.median_of_trial_medians_ms;
+  const request = evidence.requests.find(function (x) { return x.name === r.request; });
+  const label = request && request.whitespace_word_count ? request.whitespace_word_count + ' words' : r.request;
+  return '<article class="chart-row"><header><strong>' + esc(label) + '</strong><small>Candle / MLX = ' + ratio.format(c/m) + '×</small></header><div class="bar-row"><span class="bar-label">Candle</span><div class="bar-track"><div class="bar cpu" style="width:' + (c/maximum*100) + '%"></div></div><span class="bar-value">' + fmt(c) + ' ms</span></div><div class="bar-row"><span class="bar-label">MLX</span><div class="bar-track"><div class="bar" style="width:' + (m/maximum*100) + '%"></div></div><span class="bar-value">' + fmt(m) + ' ms</span></div></article>';
+ }).join('');
+ $('metal-table').innerHTML = rows.map(function (r) {
+  const c = r.backends.candle_metal, m = r.backends.mlx_metal;
+  return '<tr><td><code>' + esc(r.request) + '</code></td>' + num(fmt(c.median_of_trial_medians_ms) + ' / ' + fmt(c.pooled.p95_ms)) + num(fmt(m.median_of_trial_medians_ms) + ' / ' + fmt(m.pooled.p95_ms)) + num(ratio.format(c.median_of_trial_medians_ms/m.median_of_trial_medians_ms) + '×') + num(fmt(median(c.load_ms_by_trial)) + ' / ' + fmt(median(m.load_ms_by_trial))) + num(memoryRange(c.peak_process_rss_bytes_by_trial)) + num(memoryRange(m.peak_process_rss_bytes_by_trial)) + '</tr>';
+ }).join('');
+ $('metal-method').textContent = evidence.method.trials + ' independent trials; ' + evidence.method.warmup_runs_per_process + ' warm-ups + ' + evidence.method.measured_runs_per_process + ' measured calls. ' + evidence.method.timing_scope + '.';
+ $('metal-memory-note').textContent = 'RSS ranges show minimum–maximum process peaks across trials, including model loading. ' + evidence.method.rss_method + '. RSS includes CPU and Metal resources; it is not a GPU-only allocation metric. Filesystem and shader caches were not flushed.';
+}
+if (M) {
+ $('metal-decision').textContent = M.decision.summary;
+ $('metal-rationale').textContent = M.decision.rationale;
+ $('metal-validation').innerHTML = M.validationRows.map(function (r) {
+  return '<tr><td>' + esc(r.target + ' / ' + r.model) + '</td><td>' + esc(r.comparison) + '</td>' + num(r.strictCases + '/' + r.total) + num(r.maxConfidenceDelta === null ? 'not measured' : r.maxConfidenceDelta.toExponential(3)) + '<td>' + esc(r.note || '') + '</td></tr>';
+ }).join('');
+}
+$('metal-target').addEventListener('change',drawMetal);
+$('metal-model').addEventListener('change',drawMetal);
+drawMetal();
 $('model-table').innerHTML = D.implementation.models.map(function (m) {
  return '<tr><td><code>' + esc(m.variant) + '</code></td>' + num(ni.format(m.parameters)) + num(m.layers) + num(m.hidden) + num(m.heads) + num(m.intermediate) + num(ni.format(m.vocabulary)) + num(fmt(m.weightBytes / 1e6)) + '</tr>';
 }).join('');

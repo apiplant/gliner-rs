@@ -71,6 +71,8 @@ cli = ["dep:clap", "dep:rustyline"]
 # The HTTP server (`gliner_rs::server`, `gliner serve`).
 server = ["dep:ntex", "dep:tokio", "dep:ntex-http"]
 cuda = ["candle-core/cuda", "candle-nn/cuda"]
+# Native Metal GPU tensors on macOS and iOS; selecting Metal must never fall back to CPU.
+metal = ["candle-core/metal", "candle-nn/metal"]
 # ~5-10% faster CPU matmul on machines with Intel MKL installed (e.g. via
 # oneAPI). No effect on systems without it: `intel-mkl-src`'s build script
 # fails at link time if MKL isn't found, so this stays opt-in.

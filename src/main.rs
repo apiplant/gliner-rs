@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use candle_core::{DType, Device};
 use clap::Parser;
 use gliner_rs::cli_schema::{build_schema, CliSchemaArgs};
@@ -80,8 +80,12 @@ struct Args {
     char_split: bool,
 
     /// Run on CUDA device 0 (requires the `cuda` feature).
-    #[arg(long, global = true)]
+    #[arg(long, global = true, conflicts_with = "metal")]
     cuda: bool,
+
+    /// Run on Metal device 0 (requires the `metal` feature; no CPU fallback).
+    #[arg(long, global = true, conflicts_with = "cuda")]
+    metal: bool,
 
     /// Run the encoder in float16.
     #[arg(long, global = true)]
@@ -90,7 +94,7 @@ struct Args {
     /// CPU threads for matmul (candle/rayon). Defaults to min(8, available
     /// parallelism): the model's many small sequential matmuls oversubscribe
     /// and slow down past a handful of threads, so "all cores" is not the
-    /// fastest setting. Ignored with --cuda.
+    /// fastest setting. Ignored with --cuda or --metal.
     #[arg(long, global = true, env = "GLINER_THREADS")]
     threads: Option<usize>,
 
@@ -101,7 +105,7 @@ struct Args {
 #[derive(clap::Subcommand, Debug)]
 enum Command {
     /// Serve schema extraction over HTTP (`POST /v1/extract`, `GET /health`). Uses the global
-    /// `--model`/`--model-variant`/`--cuda`/`--fp16`/`--threads`/`--char-split` flags; runs until
+    /// `--model`/`--model-variant`/`--cuda`/`--metal`/`--fp16`/`--threads`/`--char-split` flags; runs until
     /// Ctrl-C/SIGTERM (an in-flight extraction finishes first).
     Serve {
         #[arg(long, default_value = "127.0.0.1")]
@@ -139,7 +143,7 @@ impl Variant {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    if !args.cuda {
+    if !args.cuda && !args.metal {
         // candle sizes its rayon pool from RAYON_NUM_THREADS (read once, lazily, on
         // first tensor op); with the `mkl` feature it instead calls into MKL, whose
         // own internal OpenMP pool reads OMP_NUM_THREADS/MKL_NUM_THREADS. Left unset,
@@ -156,7 +160,13 @@ fn main() -> Result<()> {
             std::env::set_var("MKL_NUM_THREADS", threads.to_string());
         }
     }
-    let device = if args.cuda { Device::new_cuda(0)? } else { Device::Cpu };
+    let device = if args.cuda {
+        Device::new_cuda(0)?
+    } else if args.metal {
+        Device::new_metal(0).context("initializing requested Metal device (requires the `metal` feature; no CPU fallback)")?
+    } else {
+        Device::Cpu
+    };
     let dtype = if args.fp16 { DType::F16 } else { DType::F32 };
     let model_path = model_path::resolve(VARIANTS, "multi", args.model.clone(), args.model_variant.map(Variant::key))?;
 
