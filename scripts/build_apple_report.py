@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 IMPLEMENTATION_COMMIT = "450367eb006a1d2ee088db343ef26a11a18aafd5"
-CANDLE_IMPLEMENTATION_REF = "codex/apple-mlx-port"
+CANDLE_IMPLEMENTATION_REF = "cd7b50f6ac7b5b395b92c373397ef19368f03a55"
 REPOSITORY_URL = "https://github.com/apiplant/gliner-rs"
 
 
