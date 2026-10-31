@@ -23,6 +23,7 @@
 <div class="eyebrow">Implementation, numerical validation, and performance</div>
 <h1>GLiNER2.5 on MLX and Metal<span>Technical report — macOS Apple Silicon and iOS</span></h1>
 <p class="abstract">This report documents the Swift port of the Boundary/DeBERTa-v2 inference path in <code>apiplant/gliner-rs</code>. It describes the CPU/GPU execution boundary, checkpoint compatibility, runtime controls, numerical agreement with Rust/Candle, and measurements on an M3 Pro Mac and a physical iPhone 17 Pro. Performance results apply to the recorded workloads and configurations.</p>
+<p class="caption">Implementation baseline: <a href="https://github.com/apiplant/gliner-rs/commit/450367eb006a1d2ee088db343ef26a11a18aafd5"><code>450367e</code></a>. Review and documentation updates: <a href="https://github.com/apiplant/gliner-rs/pull/1">PR #1</a>.</p>
 <dl class="metadata"><div><dt>Implementation</dt><dd>Swift library, CLI, SwiftUI demo<br>MLX Swift 0.33.0 / Metal</dd></div><div><dt>Reference</dt><dd>Rust/Candle CPU F32<br>Upstream <code>c5c65948</code></dd></div><div><dt>Build environment</dt><dd>Xcode 27.2 / Swift 6.4.2<br>Rust 1.99.1</dd></div><div><dt>Verification status</dt><dd>32 Swift + 36 Python tests passed<br>Device parity results below</dd></div></dl>
 </div>
 </main>
@@ -136,6 +137,7 @@ next_hidden = LayerNorm(W2(GELU_erf(W1(attended))) + attended)</code></pre>
 <tr><td>Complete output</td><td>Exact text, labels, offsets and result counts; confidence absolute difference ≤ <code>1e-4</code></td><td>small/base preserve order; multi has one explicitly reported near-tie exception</td></tr>
 <tr><td>Unit/tool tests</td><td>No failures; no skipped Swift tests</td><td>32 XCTest + 36 Python tests passed; 10 invalid CLI argument combinations rejected</td></tr>
 </tbody></table></div>
+<p class="small">The model-dependent XCTest cases use a local small checkpoint (or <code>GLINER_MODEL_DIR</code>) and skip if it is unavailable. The recorded 32-test run used a complete local checkpoint and had zero skips. Weights are not bundled as test resources; download small before verification to reproduce the complete test run.</p>
 <div class="table-wrap"><table><thead><tr><th>Platform / model</th><th class="num">Strict ordered cases</th><th class="num">Cases with reported tie handling</th><th>Note</th></tr></thead><tbody>
 <tr><td>Mac / small</td><td class="num">28 / 28</td><td class="num">28 / 28</td><td>No reordering</td></tr>
 <tr><td>Mac / base</td><td class="num">28 / 28</td><td class="num">28 / 28</td><td>No reordering</td></tr>
@@ -194,6 +196,7 @@ actor Extractor {
 python3 scripts/download_apple_model.py --variant multi
 
 # Swift tests, Rust reference, exact inputs, full encoder/output comparisons.
+python3 scripts/download_apple_model.py --variant small
 bash scripts/verify_apple.sh multi
 
 # Reproduce the five-configuration GPU experiment.

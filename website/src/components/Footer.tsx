@@ -15,6 +15,7 @@ const COLUMNS = [
     title: "Docs",
     links: [
       { label: "Library", href: "/docs/library" },
+      { label: "Apple: Swift / MLX", href: "/docs/apple" },
       { label: "gliner CLI", href: "/docs/cli" },
       { label: "gliner-classify", href: "/docs/classify" },
       { label: "gliner-pii", href: "/docs/pii" },

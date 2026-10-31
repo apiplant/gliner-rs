@@ -367,6 +367,17 @@ export function Home() {
         </p>
 
         <InstallSteps />
+        <div class="mt-6 rounded-xl border border-line bg-surface p-5">
+          <h3 class="text-base font-semibold tracking-tight text-ink">Native Apple backend</h3>
+          <p class="mt-2 max-w-3xl text-sm leading-relaxed text-muted">
+            iOS and macOS on Apple Silicon can use the Swift/MLX implementation with Metal GPU
+            execution, configurable F32/F16 precision and cache controls. Build it from the
+            source checkout; the package managers above provide the Rust binaries.
+          </p>
+          <a href="/docs/apple" class="mt-3 inline-block text-sm text-accent hover:text-accent-dim">
+            Apple build and integration guide →
+          </a>
+        </div>
       </section>
 
       {/* Library */}

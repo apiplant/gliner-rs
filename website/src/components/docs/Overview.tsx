@@ -19,14 +19,25 @@ export function DocsOverview() {
           fastino-ai/GLiNER2
         </a>
         , for GLiNER2 <strong class="text-ink font-medium">boundary-architecture</strong>{" "}
-        checkpoints. It ships as a library crate and four command-line binaries.
+        checkpoints. It ships as a library crate and four command-line binaries. A native
+        Swift/MLX backend adds Metal inference for iOS and macOS on Apple Silicon.
       </Lead>
+
+      <Section>
+        <H2>Apple platforms</H2>
+        <P>
+          For a Swift package, Metal GPU execution, the Apple CLI and the macOS/iOS demo, see{" "}
+          <a href="/docs/apple" class="text-accent hover:text-accent-dim">Apple: Swift / MLX</a>.
+          This backend is built from the source checkout and has its own precision and memory
+          controls. The Rust installation methods below install the Rust tools.
+        </P>
+      </Section>
 
       <Section>
         <H2>Checkpoints</H2>
         <P>
           Any checkpoint in the boundary-architecture family works, including{" "}
-          <IC>fastino/gliner2.5-multi-v1</IC> (the default — 205M parameters, all languages),{" "}
+          <IC>fastino/gliner2.5-multi-v1</IC> (the default multilingual checkpoint),{" "}
           <IC>gliner2.5-small-v1</IC>, <IC>gliner2.5-base-v1</IC> (smaller, faster, English-leaning),{" "}
           <IC>GLiNER2.5-Decide</IC>, <IC>GLiNER2.5-multi-Decide</IC>, <IC>GLiNER2.5-Decide-1B</IC>{" "}
           (decision/verification fine-tunes),{" "}

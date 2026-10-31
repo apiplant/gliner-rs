@@ -4,12 +4,19 @@ import argparse
 import json
 from pathlib import Path
 
+IMPLEMENTATION_COMMIT = "450367eb006a1d2ee088db343ef26a11a18aafd5"
+REPOSITORY_URL = "https://github.com/apiplant/gliner-rs"
+
 
 def build(root, destination):
     comparison = json.loads((root / "docs/benchmarks/rust-vs-mlx.json").read_text())
     profiles = json.loads((root / "docs/benchmarks/mac-m3-pro-multi.json").read_text())
     implementation = json.loads((root / "docs/benchmarks/apple-port-configurations.json").read_text())
     data = {
+        "provenance": {
+            "implementationCommit": IMPLEMENTATION_COMMIT,
+            "pullRequest": REPOSITORY_URL + "/pull/1",
+        },
         "comparison": comparison,
         "profiles": profiles,
         "implementation": implementation,
@@ -45,6 +52,9 @@ def build(root, destination):
         },
     }
     template = (root / "scripts/templates/apple_report.html").read_text()
+    # Keep source links usable when the standalone file is served by the website
+    # or downloaded outside the repository. Pin them to the measured implementation.
+    template = template.replace('href="../', f'href="{REPOSITORY_URL}/blob/{IMPLEMENTATION_COMMIT}/')
     encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
     document = template.replace("__REPORT_DATA__", encoded)
     if "__REPORT_DATA__" in document:

@@ -16,6 +16,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://gliner-rs.apiplant.com/docs/apple</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://gliner-rs.apiplant.com/docs/cli</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>

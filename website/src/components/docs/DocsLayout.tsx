@@ -17,6 +17,7 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Overview", href: "/docs" },
       { label: "As a library", href: "/docs/library" },
+      { label: "Apple: Swift / MLX", href: "/docs/apple" },
     ],
   },
   {
