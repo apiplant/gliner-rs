@@ -1,0 +1,1522 @@
+[
+  {
+    "text": "Famiglia emoji 👨‍👩‍👧‍👦 in viaggio.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Famiglia emoji 👨‍👩‍👧‍👦 in viaggio.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Famiglia emoji 👨‍👩‍👧‍👦 in viaggio.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Famiglia emoji 👨‍👩‍👧‍👦 in viaggio.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Bandiera Italia 🇮🇹 e bandiera Giappone 🇯🇵!",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Bandiera Italia 🇮🇹 e bandiera Giappone 🇯🇵!",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Bandiera Italia 🇮🇹 e bandiera Giappone 🇯🇵!",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Bandiera Italia 🇮🇹 e bandiera Giappone 🇯🇵!",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Pelle modificata: 👩🏽‍💻 e 🏳️‍🌈.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Pelle modificata: 👩🏽‍💻 e 🏳️‍🌈.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Pelle modificata: 👩🏽‍💻 e 🏳️‍🌈.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Pelle modificata: 👩🏽‍💻 e 🏳️‍🌈.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Café, café, Ångström e Å.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Café, café, Ångström e Å.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Café, café, Ångström e Å.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Café, café, Ångström e Å.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "İSTANBUL, ısparta, IĞDIR e İzmir.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "İSTANBUL, ısparta, IĞDIR e İzmir.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "İSTANBUL, ısparta, IĞDIR e İzmir.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "İSTANBUL, ısparta, IĞDIR e İzmir.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Σίσυφος, ΟΔΥΣΣΕΎΣ, ελληνικά.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Σίσυφος, ΟΔΥΣΣΕΎΣ, ελληνικά.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Σίσυφος, ΟΔΥΣΣΕΎΣ, ελληνικά.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Σίσυφος, ΟΔΥΣΣΕΎΣ, ελληνικά.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "prima\tseconda  terza   quarta\nquinta",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "prima\tseconda  terza   quarta\nquinta",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "prima\tseconda  terza   quarta\nquinta",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "prima\tseconda  terza   quarta\nquinta",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Email: zoë+test@example.com; URL https://例え.テスト/道?q=1.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Email: zoë+test@example.com; URL https://例え.テスト/道?q=1.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Email: zoë+test@example.com; URL https://例え.テスト/道?q=1.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Email: zoë+test@example.com; URL https://例え.テスト/道?q=1.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "@utente_handle e www.example.org/path?x=uno&y=due",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "@utente_handle e www.example.org/path?x=uno&y=due",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "@utente_handle e www.example.org/path?x=uno&y=due",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "@utente_handle e www.example.org/path?x=uno&y=due",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con un punto.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Finisce con un punto.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Finisce con un punto.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con un punto.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con un punto esclamativo!",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Finisce con un punto esclamativo!",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Finisce con un punto esclamativo!",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con un punto esclamativo!",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con un punto interrogativo?",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Finisce con un punto interrogativo?",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Finisce con un punto interrogativo?",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con un punto interrogativo?",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con virgola, due punti: e punto e virgola; poi trattino—.",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Finisce con virgola, due punti: e punto e virgola; poi trattino—.",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Finisce con virgola, due punti: e punto e virgola; poi trattino—.",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Finisce con virgola, due punti: e punto e virgola; poi trattino—.",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Testo con marker [P] [E] [R] [L] [C] [SEP_TEXT] [SEP_STRUCT].",
+    "char_split": false,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "Testo con marker [P] [E] [R] [L] [C] [SEP_TEXT] [SEP_STRUCT].",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "Testo con marker [P] [E] [R] [L] [C] [SEP_TEXT] [SEP_STRUCT].",
+    "char_split": false,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "Testo con marker [P] [E] [R] [L] [C] [SEP_TEXT] [SEP_STRUCT].",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "中文字符混合English和emoji🙂，用于分词测试。",
+    "char_split": true,
+    "entities": [
+      "persona",
+      "luogo",
+      "organizzazione"
+    ]
+  },
+  {
+    "text": "中文字符混合English和emoji🙂，用于分词测试。",
+    "char_split": false,
+    "json": {
+      "profilo": [
+        "nome::str::[P] nome completo",
+        "colore::[rosso|blu|verde]::[DESCRIPTION] colore"
+      ]
+    },
+    "entities": [
+      "prodotto"
+    ]
+  },
+  {
+    "text": "中文字符混合English和emoji🙂，用于分词测试。",
+    "char_split": true,
+    "classifications": [
+      {
+        "task": "tema [P] [DESCRIPTION]",
+        "labels": [
+          "positivo",
+          "negativo",
+          "neutro"
+        ],
+        "prompt": "Valuta [L] e [EXAMPLE]",
+        "label_descriptions": {
+          "positivo": "contiene [P] e emoji 😊",
+          "negativo": "contiene caratteri accentati: è",
+          "neutro": "nessun tono evidente"
+        },
+        "examples": [
+          {
+            "input": "Ottimo [P]!",
+            "output": "positivo"
+          },
+          {
+            "input": "Pessimo [L]…",
+            "output": "negativo"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "text": "中文字符混合English和emoji🙂，用于分词测试。",
+    "char_split": false,
+    "entities": [
+      "luogo",
+      "prodotto"
+    ],
+    "relations": [
+      "vicino_a"
+    ],
+    "entity_attributes": {
+      "aspetto": {
+        "labels": [
+          "blu",
+          "rosso",
+          "verde"
+        ],
+        "qualify_labels": true,
+        "applies_to": [
+          "prodotto"
+        ]
+      }
+    },
+    "classifications": [
+      {
+        "task": "stile",
+        "labels": [
+          "formale",
+          "informale"
+        ],
+        "label_descriptions": {
+          "formale": "registro formale",
+          "informale": "registro colloquiale"
+        },
+        "examples": [
+          {
+            "input": "Ciao!",
+            "output": "informale"
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,31 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  A00000000000000000000001 = {isa = PBXBuildFile; fileRef = A00000000000000000000011; };
+  A00000000000000000000002 = {isa = PBXBuildFile; fileRef = A00000000000000000000012; };
+  A00000000000000000000003 = {isa = PBXBuildFile; productRef = A00000000000000000000041; };
+  A00000000000000000000011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GLiNERDemoApp.swift; sourceTree = "<group>"; };
+  A00000000000000000000012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+  A00000000000000000000013 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GLiNERDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+  A00000000000000000000021 = {isa = PBXGroup; children = (A00000000000000000000022, A00000000000000000000023,); sourceTree = "<group>"; };
+  A00000000000000000000022 = {isa = PBXGroup; children = (A00000000000000000000011, A00000000000000000000012,); path = GLiNERDemo; sourceTree = "<group>"; };
+  A00000000000000000000023 = {isa = PBXGroup; children = (A00000000000000000000013,); name = Products; sourceTree = "<group>"; };
+  A00000000000000000000031 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001, A00000000000000000000002,); runOnlyForDeploymentPostprocessing = 0; };
+  A00000000000000000000032 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000003,); runOnlyForDeploymentPostprocessing = 0; };
+  A00000000000000000000033 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  A00000000000000000000040 = {isa = XCLocalSwiftPackageReference; relativePath = ../swift; };
+  A00000000000000000000041 = {isa = XCSwiftPackageProductDependency; package = A00000000000000000000040; productName = GLiNERMLX; };
+  A00000000000000000000051 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000062; buildPhases = (A00000000000000000000031, A00000000000000000000032, A00000000000000000000033,); buildRules = (); dependencies = (); name = GLiNERDemo; packageProductDependencies = (A00000000000000000000041,); productName = GLiNERDemo; productReference = A00000000000000000000013; productType = "com.apple.product-type.application"; };
+  A00000000000000000000052 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 1600; TargetAttributes = {A00000000000000000000051 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = A00000000000000000000061; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = A00000000000000000000021; packageReferences = (A00000000000000000000040,); productRefGroup = A00000000000000000000023; projectDirPath = ""; projectRoot = ""; targets = (A00000000000000000000051,); };
+  A00000000000000000000061 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000071, A00000000000000000000072,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  A00000000000000000000062 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000073, A00000000000000000000074,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  A00000000000000000000071 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; }; name = Debug; };
+  A00000000000000000000072 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; SWIFT_VERSION = 5.0; }; name = Release; };
+  A00000000000000000000073 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Manual; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.GLiNERDemo; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx"; SUPPORTS_MACCATALYST = NO; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+  A00000000000000000000074 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Manual; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.GLiNERDemo; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx"; SUPPORTS_MACCATALYST = NO; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+ };
+ rootObject = A00000000000000000000052;
+}

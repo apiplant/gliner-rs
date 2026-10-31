@@ -1,3 +1,11 @@
 target/
 jev-answers
 examples/dino/game/
+.models/
+swift/.build/
+swift/.swiftpm/
+.derivedData/
+*.xcuserstate
+xcuserdata/
+__pycache__/
+*.profraw

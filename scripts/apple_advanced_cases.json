@@ -1,0 +1,42 @@
+[
+  {
+    "text": "Alice bought a red bicycle in Boston, while Bob bought a blue helmet in Seattle.",
+    "structure_mode": "latent",
+    "json": {"purchase": ["buyer::str", "item::str", "city::str", "color::[red|blue|green]"]}
+  },
+  {
+    "text": "Acme hired Jane Smith as director in Paris. Globex hired Alex Brown as engineer in London.",
+    "structure_mode": "anchorless",
+    "json": {"employment": ["company::str", "person::str", "role::str", "city::str"]}
+  },
+  {
+    "text": "Order A17 shipped via FedEx; order B25 remains pending with UPS.",
+    "structure_mode": "auto",
+    "anchor": "order_id",
+    "json": {"order": ["carrier::str", "order_id::str", "status::[shipped|pending|cancelled]"]}
+  },
+  {
+    "text": "The red laptop costs $900 and the blue tablet costs $300.",
+    "structure_mode": "latent",
+    "json": {"product": ["name::str", "price::str", "color::[red|blue|green]", "kind::[laptop|tablet|phone]"]},
+    "entities": ["product", "price"]
+  },
+  {
+    "text": "The service was friendly but the delivery arrived late.",
+    "classifications": [{"task": "sentiment", "labels": ["positive", "negative", "mixed"], "label_descriptions": {"mixed": "Both positive and negative opinions", "negative": "An unfavorable opinion", "positive": "A favorable opinion"}, "examples": [{"input": "Friendly staff but slow delivery", "output": "mixed"}, {"input": "Terrible experience", "output": "negative"}], "prompt": "Identify the overall customer sentiment"}]
+  },
+  {
+    "text": "Amazon sells books and Walmart sells groceries. Apple employs Tim Cook in California.",
+    "structure_mode": "auto",
+    "anchors": {"retailer": "name"},
+    "json": {"retailer": ["category::[books|groceries|electronics]", "name::str"]},
+    "entities": ["person", "company", "location"],
+    "relations": ["employs"]
+  },
+  {
+    "text": "Microsoft released a new cloud product. Reviewers called it useful and reliable.",
+    "structure_mode": "anchorless",
+    "json": {"release": ["company::str", "product::str", "quality::list"]},
+    "classifications": [{"task": "topic", "labels": ["technology", "sports", "food"], "label_descriptions": [{"label": "technology", "description": "Computers, software and digital products"}], "examples": [{"input": "A company released new software", "output": "technology"}]}]
+  }
+]

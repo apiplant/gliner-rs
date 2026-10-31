@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Technical implementation, numerical validation and CPU/GPU benchmark report for the GLiNER2.5 Swift/MLX port on macOS and iOS.">
+<title>GLiNER2.5 Apple Backend — Technical Report</title>
+<style>
+:root{--bg:#f8f9fa;--surface:#fff;--ink:#20272d;--muted:#59666f;--line:#d6dde2;--accent:#245a7b;--gpu:#2b7381;--cpu:#926e58;--track:#e8edf0;--note:#edf3f7;--warn:#fff5e6;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:70px}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 var(--sans);-webkit-font-smoothing:antialiased}.shell{max-width:1180px;padding:0 34px;margin:0 auto}a{color:var(--accent);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}button,select{font:inherit;color:inherit}button,select,summary{cursor:pointer}button,select{border:1px solid var(--line);background:var(--surface);border-radius:4px;padding:7px 10px;font-size:12px}button:hover{background:var(--note)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.mast{border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted)}.mast .shell{min-height:58px;display:flex;justify-content:space-between;align-items:center;gap:15px}.mast strong{color:var(--ink);font-weight:650}.mast-actions{display:flex;gap:22px;align-items:center}.title-block{padding:44px 0 30px}.eyebrow{font:11px var(--mono);color:var(--muted);letter-spacing:.6px;text-transform:uppercase}h1{font-size:36px;letter-spacing:-1.2px;line-height:1.2;font-weight:650;margin:12px 0 15px}h1 span{display:block;font-size:24px;font-weight:450;letter-spacing:-.4px;margin-top:7px;color:var(--muted)}.abstract{max-width:940px;margin:0;font-size:15px}.metadata{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);margin:26px 0 0;background:var(--surface)}.metadata div{padding:13px 16px}.metadata div+div{border-left:1px solid var(--line)}.metadata dt{font:10px var(--mono);color:var(--muted);text-transform:uppercase;margin-bottom:5px}.metadata dd{font-size:12px;margin:0}.nav{position:sticky;top:0;z-index:4;background:var(--bg);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}nav{display:flex;gap:20px;min-height:48px;align-items:center;flex-wrap:wrap;padding-top:8px!important;padding-bottom:8px!important}nav a{font-size:11px;color:var(--muted);text-decoration:none;white-space:nowrap}nav a:hover{color:var(--ink)}section{padding:36px 0 39px;border-bottom:1px solid var(--line)}h2{font-size:23px;font-weight:630;line-height:1.3;letter-spacing:-.5px;margin:0 0 18px}h2 .n{color:var(--muted);font:13px var(--mono);margin-right:12px}h3{font-size:16px;line-height:1.4;margin:25px 0 10px;font-weight:630}p{margin:0 0 15px}p:last-child{margin-bottom:0}.muted,.caption{color:var(--muted)}.caption{font-size:12px;margin:12px 0 0;line-height:1.65}.note{background:var(--note);padding:14px 17px;border-left:3px solid var(--accent);margin:19px 0;font-size:13px}.note.warning{background:var(--warn);border-color:var(--cpu)}.note p{margin:0}.table-wrap{overflow-x:auto;margin:17px 0}table{width:100%;border-collapse:collapse;font-size:12px}th{font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.35px;text-transform:uppercase;white-space:nowrap}th,td{border-bottom:1px solid var(--line);padding:10px 12px 10px 0;text-align:left;vertical-align:top}th:last-child,td:last-child{padding-right:0}thead{border-top:1px solid var(--line)}td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}.nowrap{white-space:nowrap}.code{font-family:var(--mono);font-size:.88em}code{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}pre{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:16px 18px;overflow-x:auto;font:11px/1.7 var(--mono);margin:15px 0;tab-size:4}pre code{font:inherit;overflow-wrap:normal}.formula{font-size:12px;border-left:3px solid var(--line)}.columns{display:grid;grid-template-columns:1fr 1fr;gap:30px}.compact{margin:8px 0 0;padding-left:19px;font-size:13px}.compact li{margin:5px 0}.status{font:10px var(--mono);padding:3px 5px;border:1px solid var(--line);border-radius:3px;white-space:nowrap}.status.partial{color:var(--cpu)}.controls{display:flex;justify-content:space-between;align-items:end;gap:20px;flex-wrap:wrap;margin:20px 0}.control-group{display:flex;gap:14px;flex-wrap:wrap}.control label{font-size:11px;color:var(--muted);display:block;margin-bottom:5px}.legend{display:flex;gap:17px;flex-wrap:wrap;font-size:11px;color:var(--muted)}.legend span{display:flex;align-items:center;gap:7px}.swatch{width:16px;height:7px;display:inline-block;background:var(--gpu)}.swatch.cpu{background:var(--cpu)}.chart{padding:17px 20px 18px;border:1px solid var(--line);background:var(--surface)}.chart-row{margin-bottom:23px}.chart-row:last-child{margin-bottom:0}.chart-row header{display:flex;justify-content:space-between;gap:15px;font-size:12px;margin-bottom:10px}.chart-row header small{color:var(--muted);font-size:11px;font-family:var(--mono)}.bar-row{display:grid;grid-template-columns:82px 1fr 95px;gap:13px;align-items:center;margin:7px 0;font-size:11px}.bar-label{color:var(--muted)}.bar-track{height:11px;background:var(--track);border-radius:2px}.bar{height:100%;background:var(--gpu);border-radius:2px;min-width:1px}.bar.cpu{background:var(--cpu)}.bar-value{text-align:right;font:11px var(--mono);white-space:nowrap}.scale{display:flex;justify-content:space-between;border-top:1px solid var(--line);margin:19px 108px 0 95px;padding-top:5px;font:10px var(--mono);color:var(--muted)}.chart-summary{font:12px var(--mono);margin:13px 0 0}.profile-row{display:grid;grid-template-columns:205px 1fr 86px;gap:14px;align-items:center;margin:12px 0;font-size:11px}.profile-row .bar-track{height:9px}details{padding:15px 0;border-top:1px solid var(--line)}summary{font-size:13px;font-weight:600}details p{margin:13px 0 0;font-size:13px}details pre{max-height:520px}.hash{font-size:10px;word-break:break-all}.source-list{display:grid;grid-template-columns:1fr 1fr;gap:8px 25px;margin:17px 0 0;font-size:12px}.source-list a{overflow-wrap:anywhere}.footer{padding:24px 0 35px;font:10px/1.7 var(--mono);color:var(--muted);display:flex;justify-content:space-between;gap:20px}.sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)}.small{font-size:12px}
+@media(prefers-color-scheme:dark){:root{--bg:#151a1e;--surface:#1b2227;--ink:#dde4e9;--muted:#a4b1ba;--line:#35414a;--accent:#9ec5e0;--gpu:#8cbec9;--cpu:#c6a38d;--track:#2c3942;--note:#202f3a;--warn:#332d25}}
+@media(max-width:800px){.shell{padding:0 23px}.metadata{grid-template-columns:1fr 1fr}.metadata div:nth-child(3){border-left:0;border-top:1px solid var(--line)}.metadata div:nth-child(4){border-top:1px solid var(--line)}.columns{grid-template-columns:1fr;gap:10px}nav{gap:11px 18px}.source-list{grid-template-columns:1fr}.mast-actions{gap:12px}}
+@media(max-width:520px){.shell{padding:0 17px}.mast .date{display:none}.title-block{padding:29px 0 24px}h1{font-size:29px;letter-spacing:-.8px}h1 span{font-size:20px}.abstract{font-size:13px}.metadata div{padding:10px}.metadata dd{font-size:11px}.metadata dt{font-size:9px}.nav{position:relative}nav a{font-size:10px}section{padding:29px 0}h2{font-size:21px}h2 .n{font-size:11px;margin-right:8px}body{font-size:14px}.table-wrap{max-width:100%}table{font-size:11px}th{font-size:9px}td,th{padding-right:12px}.chart{padding:15px 12px}.bar-row{grid-template-columns:62px 1fr 78px;gap:8px;font-size:10px}.bar-value{font-size:10px}.scale{margin-left:70px;margin-right:86px;font-size:9px}.chart-row header{font-size:11px}.chart-row header small{font-size:9px}.profile-row{grid-template-columns:130px 1fr 68px;gap:8px;font-size:10px}.profile-row .bar-value{font-size:10px}.controls{gap:13px}.control label{font-size:10px}select{font-size:11px}.chart-summary{font-size:11px}.footer{flex-direction:column;gap:9px}.note{font-size:12px}pre{padding:12px;font-size:10px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{:root{--bg:#fff;--surface:#fff;--ink:#20272d;--muted:#59666f;--line:#d6dde2;--accent:#245a7b;--gpu:#2b7381;--cpu:#926e58;--track:#e8edf0;--note:#edf3f7;--warn:#fff5e6}body{background:#fff;font-size:9pt}.shell{padding:0;max-width:none}.nav,.no-print,.controls{display:none!important}.title-block{padding:20px 0}h1{font-size:25pt}h1 span{font-size:16pt}h2{font-size:16pt;break-after:avoid}h3{break-after:avoid}section{padding:22px 0}table{font-size:8pt}.metadata{break-inside:avoid}.chart,.chart-row,.note,pre{break-inside:avoid}.bar{print-color-adjust:exact;-webkit-print-color-adjust:exact}details>*{display:block!important}details pre{max-height:none}.footer{font-size:8pt}.source-list{font-size:8pt}.caption{font-size:8pt}a{color:inherit}@page{size:A4;margin:15mm}}
+</style>
+</head>
+<body>
+<header class="mast" id="top"><div class="shell"><strong>GLiNER2.5 / Apple backend</strong><div class="mast-actions"><span class="date">2026-10-31</span><button id="print-report" class="no-print" type="button">Print / PDF</button></div></div></header>
+<main class="shell">
+<div class="title-block">
+<div class="eyebrow">Implementation, numerical validation, and performance</div>
+<h1>GLiNER2.5 on MLX and Metal<span>Technical report — macOS Apple Silicon and iOS</span></h1>
+<p class="abstract">This report documents the Swift port of the Boundary/DeBERTa-v2 inference path in <code>apiplant/gliner-rs</code>. It describes the CPU/GPU execution boundary, checkpoint compatibility, runtime controls, numerical agreement with Rust/Candle, and measurements on an M3 Pro Mac and a physical iPhone 17 Pro. Performance results apply to the recorded workloads and configurations.</p>
+<dl class="metadata"><div><dt>Implementation</dt><dd>Swift library, CLI, SwiftUI demo<br>MLX Swift 0.33.0 / Metal</dd></div><div><dt>Reference</dt><dd>Rust/Candle CPU F32<br>Upstream <code>c5c65948</code></dd></div><div><dt>Build environment</dt><dd>Xcode 27.2 / Swift 6.4.2<br>Rust 1.99.1</dd></div><div><dt>Verification status</dt><dd>32 Swift + 36 Python tests passed<br>Device parity results below</dd></div></dl>
+</div>
+</main>
+<div class="nav"><nav class="shell" aria-label="Report sections"><a href="#scope">01 Scope</a><a href="#implementation">02 Implementation</a><a href="#models">03 Checkpoints</a><a href="#runtime">04 Runtime</a><a href="#performance">05 Performance</a><a href="#validation">06 Validation</a><a href="#device">07 Device / memory</a><a href="#reproduction">08 Reproduction</a><a href="#limits">09 Limitations</a></nav></div>
+<div class="shell">
+
+<section id="scope">
+<h2><span class="n">01</span>Scope and repository structure</h2>
+<p>The port is an additional backend in the existing repository. The Rust library remains available as the reference implementation. The Apple implementation is written in Swift using MLX tensor operations; MLX supplies the Metal kernels. No custom Metal Shading Language kernels were added.</p>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Responsibility</th></tr></thead><tbody>
+<tr><td><code>swift/Sources/GLiNERMLX/</code></td><td>Tokenizer, schema preparation, DeBERTa encoder, Boundary heads, decoding, batching, chunking, runtime configuration</td></tr>
+<tr><td><code>swift/Sources/GLiNERCLI/</code></td><td>Local model loading, extraction requests, diagnostics and per-request timing</td></tr>
+<tr><td><code>ios/GLiNERDemo/</code></td><td>Shared SwiftUI application for iOS and macOS; serialized model worker and offline checkpoint reuse</td></tr>
+<tr><td><code>examples/apple_reference.rs</code></td><td>CPU reference exporter for inputs, encoder states, complete outputs and timing</td></tr>
+<tr><td><code>scripts/</code></td><td>Pinned checkpoint download, numerical comparison, Mac/device verification and benchmarks</td></tr>
+</tbody></table></div>
+<p class="small">Supported tasks: entity extraction, single/multi-label classification, relations, structured records in natural/latent/anchorless modes, choice fields, entity attributes, regex validators, overlap policies, padded batches, and long-document chunking. Legacy Span checkpoints, ModernBERT encoders and quantized weights are outside the implemented scope.</p>
+<p class="caption">Declared deployment targets: macOS 14 and iOS 17. Actual execution was verified on macOS 27.2 and a physical iPhone 17 Pro; minimum OS versions were not tested on devices running those versions.</p>
+</section>
+
+<section id="implementation">
+<h2><span class="n">02</span>Inference implementation</h2>
+<div class="table-wrap"><table><thead><tr><th>Stage</th><th>Implementation</th><th>Execution</th></tr></thead><tbody>
+<tr><td>Input preparation</td><td>Unigram tokenizer, normalization and special tokens; schema/query markers; word-to-subword and character/byte offsets</td><td>Swift / Foundation CPU</td></tr>
+<tr><td>Encoder</td><td>Embedding lookup, LayerNorm, 12 DeBERTa-v2 blocks, disentangled relative attention, GELU feed-forward layers</td><td>MLX tensor operations on Metal GPU</td></tr>
+<tr><td>Word/query states</td><td>First-subword pooling and schema marker gathers; encoder output converted to F32 for heads</td><td>MLX tensor operations</td></tr>
+<tr><td>Boundary extraction</td><td>Boundary encoding, query-conditioned marginals, shared candidate pool, endpoint/content scoring and reranking</td><td>MLX projections/scoring; CPU pool compatibility dot products, inside-prefix accumulation, score combination, selection and stable ordering</td></tr>
+<tr><td>Relations / records</td><td>Directional endpoint and gated biaffine scoring; natural anchors, learned latent seeds or anchorless instance queries</td><td>MLX scoring plus CPU proposal/assignment/decoding</td></tr>
+<tr><td>Output</td><td>Thresholding, overlap policy, validators, deduplication, offset remapping and JSON serialization</td><td>Swift CPU</td></tr>
+</tbody></table></div>
+<h3>DeBERTa attention</h3>
+<p class="small">For input IDs and mask shaped <code>[B,T]</code>, hidden states have shape <code>[B,T,H]</code>. Attention projections are reshaped to <code>[B,A,T,H/A]</code>. The implementation combines content-to-content, content-to-position and position-to-content scores, using the same relative-position bucketing and masking semantics as the reference.</p>
+<pre class="formula"><code>S = (Q Kᵀ + gather(Q Rkᵀ, c2p) + transpose(gather(K Rqᵀ, p2c))) / √(3 · head_dim)
+context = softmax(mask(S)) V
+attended = LayerNorm(Wo(context) + hidden)
+next_hidden = LayerNorm(W2(GELU_erf(W1(attended))) + attended)</code></pre>
+<p class="small">Relative embeddings are normalized and their layer-specific projected keys/queries are computed once during model initialization. The pinned checkpoints use shared attention keys, 256 position buckets and LayerNorm ε = <code>1e-7</code>. Dropout is omitted in inference.</p>
+<div class="note"><p><strong>Memory complexity:</strong> this encoder explicitly constructs dense attention scores and relative-position index matrices. Attention storage scales as <code>O(B · A · T²)</code>. A local mask in the Boundary head does not make the DeBERTa encoder sparse. The current implementation does not use a custom fused disentangled-attention kernel.</p></div>
+<h3>Boundary and record configuration</h3>
+<p class="small">The tested checkpoints use boundary dimension 128, two boundary attention layers with four heads and window 128, one refinement layer, shared pool size 192 and boundary top-k 32. Relation pairs are capped at 64; the record head has 32 learned instance queries. Candidate selection and exclusivity constraints preserve reference tie-breaking. Scalar exclusive record fields use a linear assignment solver.</p>
+<p class="caption">Source: <a href="../swift/Sources/GLiNERMLX/Deberta.swift">Deberta.swift</a>, <a href="../swift/Sources/GLiNERMLX/BoundaryHead.swift">BoundaryHead.swift</a>, <a href="../swift/Sources/GLiNERMLX/RecordHead.swift">RecordHead.swift</a>, <a href="../swift/Sources/GLiNERMLX/Model.swift">Model.swift</a>.</p>
+</section>
+
+<section id="models">
+<h2><span class="n">03</span>Checkpoint inventory</h2>
+<p>All three tested checkpoints contain 334 tensors stored as F32 in <code>model.safetensors</code>. The loader casts encoder tensors to the selected runtime precision and retains the extraction heads in F32. Parameter counts below are calculated from the safetensors headers, including the task heads.</p>
+<div class="table-wrap"><table><thead><tr><th>Variant</th><th class="num">Parameters</th><th class="num">Layers</th><th class="num">Hidden</th><th class="num">Heads</th><th class="num">FFN</th><th class="num">Vocabulary</th><th class="num">Weights, MB</th></tr></thead><tbody id="model-table"></tbody></table></div>
+<p class="caption">MB and GB use decimal bytes; MiB uses 2²⁰ bytes. Weight size excludes tokenizer/configuration files. Total download sizes and complete revision/checksum values are in the provenance table. The multilingual checkpoint is the model used for the performance measurements.</p>
+<details><summary>Pinned revisions, download sizes and SHA-256</summary><div class="table-wrap"><table><thead><tr><th>Checkpoint</th><th class="num">Download bytes</th><th>Revision / weights SHA-256</th></tr></thead><tbody id="checkpoint-table"></tbody></table></div></details>
+<p class="small">The default input guard is 4,096 tokens <em>including the schema</em>. Oversized requests fail explicitly rather than silently truncating. <code>extractLong</code> splits text into overlapping word chunks and remaps/deduplicates predictions. <code>max_position_embeddings = 512</code> in the encoder configuration is not used as a silent 512-token truncation rule.</p>
+</section>
+
+<section id="runtime">
+<h2><span class="n">04</span>Precision and memory controls</h2>
+<div class="table-wrap"><table><thead><tr><th>Profile</th><th>Encoder / heads</th><th>macOS cache</th><th>iOS cache</th><th>Clear after request</th><th>TF32</th></tr></thead><tbody>
+<tr><td><code>accurate</code></td><td>F32 / F32</td><td>Original MLX policy</td><td>20 MiB</td><td>macOS: no; iOS: yes</td><td>Off</td></tr>
+<tr><td><code>fast</code></td><td>F16 / F32</td><td>Original MLX policy</td><td>20 MiB</td><td>No</td><td>Off</td></tr>
+<tr><td><code>low-memory</code></td><td>F16 / F32</td><td>20 MiB</td><td>20 MiB</td><td>Yes</td><td>Off</td></tr>
+</tbody></table></div>
+<p class="small">CLI overrides are independent: <code>--fp16</code>/<code>--fp32</code>, <code>--tf32</code>/<code>--no-tf32</code>, <code>--cache-mb auto|N</code> and <code>--clear-cache</code>/<code>--retain-cache</code>. A cache value of zero disables unused-buffer retention. These limits concern reusable buffers, not the total weights or total process memory.</p>
+<div class="columns"><div><h3>Configuration lifetime</h3><ul class="compact"><li>Precision changes reload the model and convert encoder weights once.</li><li>Cache limit and clearing policy can change between requests without reloading weights.</li><li>MLX runtime settings are process-wide. Model calls should be serialized, including calls across models with different cache policies.</li><li>Request-scoped autorelease pools release Foundation temporaries before optional MLX cache clearing.</li></ul></div><div><h3>TF32 constraints</h3><ul class="compact"><li>MLX 0.33 caches its TF32 choice at the first relevant computation.</li><li>Set <code>MLX_ENABLE_TF32</code> through the runtime API before any MLX workload in a host app.</li><li>The SDK rejects a late change after its model has started computation; the demo requires a process restart.</li><li>M3 has no applicable MLX NAX/TF32 path. No TF32 speedup was measured on this Mac.</li></ul></div></div>
+<div class="note warning"><p><strong>F16 is approximate.</strong> In an exploratory 21-case comparison using a confidence tolerance of 0.02, small matched 20/21 cases and multi 18/21. That tolerance is looser than the F32 acceptance criterion. Deviations include a relation boundary, confidence differences exceeding 0.02 and different selected candidates. F32 with TF32 disabled is the reference-parity configuration.</p></div>
+<p class="caption">Source: <a href="../swift/Sources/GLiNERMLX/Runtime.swift">Runtime.swift</a>. The demo labels are Italian: “Precisione”, “Velocità” and “Memoria ridotta”.</p>
+</section>
+
+<section id="performance">
+<h2><span class="n">05</span>macOS performance measurements</h2>
+<h3>5.1 Experimental conditions</h3>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Recorded condition</th></tr></thead><tbody>
+<tr><td>Host</td><td>Apple M3 Pro, 12 CPU cores (6 performance + 6 efficiency), 18 GiB unified memory, macOS 27.2</td></tr>
+<tr><td>Model / task</td><td>GLiNER2.5 multi, pinned revision <code>cf5593a5…</code>; batch size 1; entity extraction</td></tr>
+<tr><td>Schema</td><td><code>person, company, location, product, date</code>; identical texts, labels, weights and F32 precision</td></tr>
+<tr><td>Builds</td><td>Both Release. Rust 1.99.1 / Candle CPU pure Rust GEMM; Swift 6.4.2 / MLX Swift 0.33.0 / Metal GPU</td></tr>
+<tr><td>CPU threads</td><td>Rayon 8 (original CLI default on this host) and 4. Candle’s separate kernel pool retains its unset-environment default of 6 performance-core threads. No MKL, Accelerate or CUDA backend.</td></tr>
+<tr><td>Sampling</td><td>New process for each text/configuration; 5 warm-up calls including the first call, then 30 measured calls. CPU/GPU workloads run sequentially.</td></tr>
+<tr><td>Timing boundary</td><td>Per-request CLI timer: input preparation, inference, decoding, formatting and output serialization. Model loading and process launch excluded. Rust includes an explicit stdout flush; Swift uses its print path.</td></tr>
+<tr><td>Timer implementation</td><td>Swift uses Date wall-clock intervals; Rust uses monotonic Instant intervals. Printed resolution is 0.001 ms, not demonstrated measurement accuracy.</td></tr>
+<tr><td>Statistics</td><td>Median of 30 samples; p95 by nearest rank (29th sorted sample). Fixed execution order; no randomized/repeated independent trials, confidence intervals or significance test.</td></tr>
+<tr><td>Cache controls</td><td>Metal shader and filesystem caches were not flushed. “First call” means first call in that process, not a fully cold machine.</td></tr>
+</tbody></table></div>
+<div class="note"><p><strong>Comparison scope:</strong> Rust/Candle CPU versus Swift/MLX GPU. The ratio includes differences in device, kernels and runtime. It does not isolate programming-language overhead and does not compare Rust Metal against Swift Metal.</p></div>
+<div class="table-wrap"><table><thead><tr><th>Workload</th><th class="num">Words</th><th class="num">Prepared tokens</th><th class="num">Queries</th></tr></thead><tbody id="workload-table"></tbody></table></div>
+<p class="caption">Prepared token counts include the schema and were independently checked against the Rust input exporter: 3/3 exact matches. Complete text and schema are embedded in the data appendix.</p>
+
+<h3>5.2 Paired CPU/GPU latency</h3>
+<div class="controls"><div class="legend"><span><i class="swatch cpu" aria-hidden="true"></i>Rust / Candle CPU F32</span><span><i class="swatch" aria-hidden="true"></i>Swift / MLX GPU F32</span></div><div class="control-group"><div class="control"><label for="cpu-mode">Rayon configuration</label><select id="cpu-mode"><option value="default">8 threads · CLI default</option><option value="best">4 threads · lower measured median</option></select></div><div class="control"><label for="latency-stat">Statistic</label><select id="latency-stat"><option value="median">Median</option><option value="p95">p95</option></select></div></div></div>
+<div class="chart"><div id="comparison-bars" role="img" aria-label="CPU and GPU request latency"></div><div id="comparison-scale" class="scale" aria-hidden="true"></div></div>
+<p id="comparison-summary" class="chart-summary" aria-live="polite"></p>
+<div class="table-wrap"><table><caption class="sr-only">All paired measurements in milliseconds</caption><thead><tr><th>Words</th><th class="num">GPU median</th><th class="num">GPU p95</th><th class="num">CPU 8 median</th><th class="num">CPU 8 p95</th><th class="num">CPU 4 median</th><th class="num">CPU 4 p95</th><th class="num">CPU 8 / GPU</th></tr></thead><tbody id="paired-table"></tbody></table></div>
+<p class="small">All 35 outputs per text/configuration, including warm-up calls, were stable within each configuration. CPU/GPU comparisons preserved array order and discrete results, with maximum confidence difference <code>5.78165e-6</code> against a <code>1e-4</code> tolerance.</p>
+
+<h3>5.3 Precision/cache experiment</h3>
+<p class="small">A separate session measured five GPU configurations × three texts × 35 calls = 525 executions. The paired comparison above added three fresh GPU processes and six CPU processes, totaling 315 executions. Values from the two sessions are not interchangeable baselines.</p>
+<div class="controls"><p class="caption">Median request time; F16 bars indicate approximate arithmetic.</p><div class="control"><label for="profile-request">Workload</label><select id="profile-request"></select></div></div>
+<div class="chart" id="profile-bars" role="img" aria-label="GPU precision and cache timings"></div>
+<div class="table-wrap"><table><thead><tr><th>Encoder</th><th>Cache / clear</th><th class="num">64 words median / p95</th><th class="num">97 words median / p95</th><th class="num">130 words median / p95</th></tr></thead><tbody id="profile-table"></tbody></table></div>
+<p class="small">F32 outputs were bit-identical across the three cache configurations. Automatic cache had the lowest F32 median on these workloads. F16/automatic cache reduced median latency by approximately 9–10%, but exceeded the strict reference tolerance; it is an opt-in trade-off. These runs do not establish a peak-memory reduction for any profile.</p>
+<p class="small">F16 confidence differences from the same-session F32 baseline reached 0.000287235, 0.000316262 and 0.004377604 for the three texts. The longest text also reversed the order of the Torino and Bologna entities. The later paired-comparison session's F32 medians were approximately 12–14% higher than the earlier profile session. This between-session variation exceeds the observed F16 reduction; the F16 result is an observation from that session, not a statistically established general speedup.</p>
+
+<h3>5.4 First request and UI smoke test</h3>
+<p class="small">In the profile session, the first recorded F32 process took 1,678.919 ms to load and 1,693.249 ms for its first request. Subsequent process loads and first-call timings benefited from system caches. These values do not support a general cold-start comparison with Rust.</p>
+<p class="small">A separate Release macOS demo smoke test used the short “Michele vive a Milano e lavora per Acme.” input, three labels and multi/F32/automatic cache. First call including loading: 1,251.326 ms. Four subsequent calls: 57.608, 47.763, 54.531 and 41.933 ms; JSON formatting: 0.046–0.057 ms. This is a manual UI sample, not a paired benchmark or a p95 estimate. Its timer covers the model worker and excludes rendering/actor queue delay.</p>
+</section>
+
+<section id="validation">
+<h2><span class="n">06</span>Numerical validation</h2>
+<p class="small">Build verification completed for the macOS CLI (Release), macOS demo (Release), physical iOS target (Debug), and iOS Simulator target (Debug). Simulator compilation was verified; simulator inference was not used as evidence for device correctness.</p>
+<div class="table-wrap"><table><thead><tr><th>Layer of validation</th><th>Acceptance criterion</th><th>Observed result</th></tr></thead><tbody>
+<tr><td>Input preparation</td><td>Exact IDs, markers, word positions, text and offsets; no floating tolerance</td><td>92/92 cases per tested tokenizer (small and multi): 21 base + 64 Unicode/tokenizer + 7 advanced cases</td></tr>
+<tr><td>Final encoder output</td><td>Every value finite; maximum absolute difference ≤ <code>1e-3</code>; exact tensor metadata</td><td>Full final-output tensor comparisons on Mac and physical iPhone; detailed device results below</td></tr>
+<tr><td>Complete output</td><td>Exact text, labels, offsets and result counts; confidence absolute difference ≤ <code>1e-4</code></td><td>small/base preserve order; multi has one explicitly reported near-tie exception</td></tr>
+<tr><td>Unit/tool tests</td><td>No failures; no skipped Swift tests</td><td>32 XCTest + 36 Python tests passed; 10 invalid CLI argument combinations rejected</td></tr>
+</tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Platform / model</th><th class="num">Strict ordered cases</th><th class="num">Cases with reported tie handling</th><th>Note</th></tr></thead><tbody>
+<tr><td>Mac / small</td><td class="num">28 / 28</td><td class="num">28 / 28</td><td>No reordering</td></tr>
+<tr><td>Mac / base</td><td class="num">28 / 28</td><td class="num">28 / 28</td><td>No reordering</td></tr>
+<tr><td>Mac / multi</td><td class="num">27 / 28</td><td class="num">28 / 28</td><td>One entity near-tie block</td></tr>
+<tr><td>iPhone / small</td><td class="num">28 / 28</td><td class="num">28 / 28</td><td>No reordering</td></tr>
+<tr><td>iPhone / multi</td><td class="num">27 / 28</td><td class="num">28 / 28</td><td>Same near-tie block</td></tr>
+</tbody></table></div>
+<h3>Ordering exception</h3>
+<p class="small">In the long-input case (zero-based case 7), two “Berlin” entity spans at code-point offsets <code>[2701,2707)</code> and <code>[457,463)</code> swap order. The Rust confidence range is <code>1.1920928955078125e-7</code>; the MLX scores are tied. The comparator only accepts contiguous blocks of identical entity identities whose confidence range is at most <code>1e-6</code> on both sides. It records every accepted reorder. Record, relation and classification arrays remain strictly ordered.</p>
+<h3>Physical-device final encoder-output comparison</h3>
+<div class="table-wrap"><table><thead><tr><th>Checkpoint</th><th class="num">Cases</th><th class="num">Values compared</th><th class="num">Max absolute error</th><th class="num">Tolerance</th></tr></thead><tbody><tr><td>small / F32</td><td class="num">28</td><td class="num">1,024,128</td><td class="num">7.2479248e-5</td><td class="num">1e-3</td></tr><tr><td>multi / F32</td><td class="num">28</td><td class="num">2,592,768</td><td class="num">1.10270455e-4</td><td class="num">1e-3</td></tr></tbody></table></div>
+<p class="caption">The encoder tolerance and output-confidence tolerance are different. The multi maximum encoder error is larger than 1e-4 but below its declared 1e-3 bound. Maximum iPhone multi output-confidence difference was 1.3530254e-5.</p>
+<h3>Defects identified during verification</h3>
+<div class="table-wrap"><table><thead><tr><th>Issue</th><th>Evidence</th><th>Implemented correction</th></tr></thead><tbody>
+<tr><td>Unicode normalization</td><td>Swift lowercasing differed from Rust for Greek final sigma; tokenizer Sequence/Metaspace/strip settings needed matching</td><td>Reference-compatible normalization and tokenizer handling; exact input comparison</td></tr>
+<tr><td>TF32 on recent device</td><td>F32 tensors alone still allowed MLX’s NAX/TF32 path; confidence differences reached about 0.0094</td><td>Explicit TF32-off configuration before computation; process-lifetime guard</td></tr>
+<tr><td>Repeated-request memory</td><td>An initial multilingual diagnostic run stopped after 11 requests; the exact OS termination cause was not established</td><td>20 MiB iOS cache policy, autorelease-pool scoping and unused-buffer cleanup; full 28-case trace now completes</td></tr>
+</tbody></table></div>
+<p class="caption">Parity measures agreement with the Rust reference, not real-world predictive accuracy. No task-level F1 evaluation against a labeled corpus was run.</p>
+</section>
+
+<section id="device">
+<h2><span class="n">07</span>iOS execution and memory observations</h2>
+<p>The app was built for a physical iPhone, signed using existing local development signing material and installed for testing. Models were copied to the app’s Documents storage for offline self-tests. The verifier uses a unique run ID and rejects stale result files.</p>
+<div class="table-wrap"><table><thead><tr><th>28-case F32 run</th><th class="num">Load, s</th><th class="num">Inference sum, s</th><th class="num">Peak RSS, bytes</th><th class="num">MLX active peak, bytes</th></tr></thead><tbody><tr><td>small</td><td class="num">0.539281</td><td class="num">2.052728</td><td class="num">592,855,040</td><td class="num">Not recorded</td></tr><tr><td>multi</td><td class="num">1.331398</td><td class="num">2.715662</td><td class="num">1,492,697,088</td><td class="num">2,673,877,508</td></tr></tbody></table></div>
+<p class="small">The case set mixes task types and input lengths; the sums are extraction timers, not whole-run durations or throughput benchmarks. Both verified runs also exported full final encoder outputs. JSON serialization/writing, the additional encoder pass and trace export are excluded from the extraction-time sums but contribute to the diagnostic workload and memory observations. Process RSS and MLX allocation accounting overlap and must not be added. Neither is a guaranteed memory ceiling. No profile-by-profile RSS/energy/thermal comparison was performed.</p>
+<h3>Integration contract</h3>
+<ul class="compact"><li>Load local <code>config.json</code>, <code>encoder_config/config.json</code>, <code>tokenizer.json</code> and <code>model.safetensors</code>.</li><li>Use one serialized worker for a model. The demo uses a Swift actor; the numerical API itself is synchronous.</li><li>Keep the model resident between requests. Changing only the cache policy does not require weight reload.</li><li>Configure TF32 before any other MLX computation in the host process. The runtime cannot detect an earlier computation performed by unrelated libraries.</li><li>Do not interpret the 20 MiB cache limit as a 20 MiB model-memory budget.</li></ul>
+<pre><code>import Foundation
+import GLiNERMLX
+
+actor Extractor {
+    private let model: GLiNERModel
+
+    init(directory: URL) throws {
+        model = try GLiNERModel(
+            modelDirectory: directory,
+            precision: .float32,
+            runtimeConfiguration: .platformDefault)
+    }
+
+    func extract(_ text: String) throws -> JSONValue {
+        try model.extract(
+            text,
+            schema: Schema(entities: ["person", "company", "location"]),
+            options: .init(includeSpans: true, includeConfidence: true))
+    }
+}</code></pre>
+<p class="caption">Additional API: <code>extractBatch</code>, <code>extractLong</code>, <code>classifyText</code>, <code>classificationProbabilities</code>, <code>extractRelations</code>, <code>extractJSON</code>, <code>prepare</code>, <code>encode</code> and <code>updateRuntimeConfiguration</code>.</p>
+</section>
+
+<section id="reproduction">
+<h2><span class="n">08</span>Reproduction and evidence</h2>
+<p class="small">Run from the repository root. macOS CLI/app builds default to Release; tests, iOS and simulator builds default to Debug. Actual benchmark build hashes, complete requests, per-call timing samples, checkpoint checksums and method metadata are embedded below and stored in the linked JSON reports.</p>
+<pre><code># Download pinned weights and verify file checksums.
+python3 scripts/download_apple_model.py --variant multi
+
+# Swift tests, Rust reference, exact inputs, full encoder/output comparisons.
+bash scripts/verify_apple.sh multi
+
+# Reproduce the five-configuration GPU experiment.
+python3 scripts/benchmark_apple.py \
+  --model .models/gliner2.5-multi-v1 \
+  --include-cache20 --runs 30 --warmup 5 \
+  --output .models/mac-benchmark.json
+
+# Fresh GPU F32 baseline, then Rust CPU measurements.
+python3 scripts/benchmark_rust_comparison.py \
+  --mlx-report .models/mac-benchmark.json \
+  --model .models/gliner2.5-multi-v1 \
+  --refresh-mlx --threads 8,4 --runs 30 --warmup 5 \
+  --output .models/rust-vs-mlx-benchmark.json
+
+# Physical iPhone: app must already be signed and installed.
+bash scripts/verify_iphone.sh DEVICE_ID multi --trace
+
+# Independent tool tests and regeneration of this document.
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 scripts/build_apple_report.py</code></pre>
+<p class="small">The Rust reference requires the installed <code>+1.99.1</code> toolchain on this checkout. The verification script selects it without changing the global default. Raw traces and logs are written to <code>.models/</code>, which is excluded from Git. This HTML embeds its chart data and has no remote script, font or stylesheet dependencies.</p>
+<div class="source-list"><a href="../docs/benchmarks/rust-vs-mlx.json">Paired CPU/GPU measurements and provenance</a><a href="../docs/benchmarks/mac-m3-pro-multi.json">GPU precision/cache measurements</a><a href="../docs/benchmarks/apple-port-configurations.json">Checkpoint metadata and prepared input lengths</a><a href="../docs/APPLE_VALIDATION.md">Validation log summary</a><a href="../swift/README.md">Build and integration guide (Italian)</a><a href="../swift/Package.resolved">Resolved Swift dependency revisions</a><a href="https://github.com/apiplant/gliner-rs/tree/c5c65948478d687190f9c83fcc51d3afa15b5f2a" target="_blank" rel="noopener">Pinned upstream Rust source</a><a href="https://github.com/ml-explore/mlx-swift/tree/0.33.0" target="_blank" rel="noopener">MLX Swift 0.33.0 source</a></div>
+<details id="data-details" class="no-print"><summary>View embedded benchmark and validation data (JSON)</summary><pre id="data-view">Open this panel to display the embedded data.</pre></details>
+</section>
+
+<section id="limits">
+<h2><span class="n">09</span>Limitations and remaining engineering work</h2>
+<div class="table-wrap"><table><thead><tr><th>Area</th><th>Current boundary</th><th>Required evidence for expansion</th></tr></thead><tbody>
+<tr><td>Architectures</td><td>Boundary + DeBERTa-v2 only; tested small/base/multi checkpoints</td><td>Additional architecture implementation and independent parity suites for other model families</td></tr>
+<tr><td>Numerical identity</td><td>F32 tolerance-based agreement; multi has one near-tie reorder. F16 is not parity-equivalent.</td><td>Model/task-specific regression evaluation before changing the default arithmetic</td></tr>
+<tr><td>GPU optimization</td><td>MLX operations and existing Metal kernels; dense relative attention; CPU candidate/record decoding</td><td>Profiling before fused attention, graph compilation, reduced synchronization or custom kernels; rerun full parity checks</td></tr>
+<tr><td>Memory / quantization</td><td>F32 checkpoints; optional F16 encoder; cache controls; no quantized load path</td><td>Quantization calibration and accuracy evaluation; matched peak-memory/energy measurements</td></tr>
+<tr><td>Performance coverage</td><td>One Mac; three batch-1 NER texts; one iPhone for correctness</td><td>Long-input scaling, batching, other tasks, other Apple chips and sustained workloads</td></tr>
+<tr><td>Device coverage</td><td>Physical iPhone 17 Pro and Mac M3 Pro; minimum declared OS versions not exercised</td><td>Older-device memory/compatibility testing and minimum-OS execution</td></tr>
+<tr><td>Product distribution</td><td>Local development build and demo project</td><td>Application integration, lifecycle/memory-pressure handling, packaging and distribution validation</td></tr>
+</tbody></table></div>
+<p class="small">The measured result is a working, validated MLX/Metal implementation for the stated checkpoints and devices. It is not a claim of bitwise equivalence, universal device compatibility, production distribution readiness or a language-level speed advantage.</p>
+</section>
+<footer class="footer"><div>GLiNER2.5 Apple backend · technical report<br>Generated from recorded local evidence · 2026-10-31</div><div>Reference commit: c5c65948478d687190f9c83fcc51d3afa15b5f2a<br>Charts use embedded data; no network required.</div></footer>
+</div>
+<noscript><p class="shell">JavaScript is required for the generated measurement tables and charts. Static methodology, validation notes and linked JSON evidence remain available.</p></noscript>
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+(function () {
+'use strict';
+const D = JSON.parse(document.getElementById('report-data').textContent);
+const C = D.comparison.comparisons;
+const $ = function (id) { return document.getElementById(id); };
+const nf = new Intl.NumberFormat('en-US', {minimumFractionDigits: 3, maximumFractionDigits: 3});
+const ni = new Intl.NumberFormat('en-US', {maximumFractionDigits: 0});
+const ratio = new Intl.NumberFormat('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const fmt = function (x) { return nf.format(x); };
+const esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+const num = function (value) { return '<td class="num">' + value + '</td>'; };
+$('model-table').innerHTML = D.implementation.models.map(function (m) {
+ return '<tr><td><code>' + esc(m.variant) + '</code></td>' + num(ni.format(m.parameters)) + num(m.layers) + num(m.hidden) + num(m.heads) + num(m.intermediate) + num(ni.format(m.vocabulary)) + num(fmt(m.weightBytes / 1e6)) + '</tr>';
+}).join('');
+$('checkpoint-table').innerHTML = D.implementation.models.map(function (m) {
+ return '<tr><td><a href="https://huggingface.co/' + esc(m.repository) + '/tree/' + esc(m.revision) + '" target="_blank" rel="noopener">' + esc(m.repository) + '</a></td>' + num(ni.format(m.downloadBytes)) + '<td class="hash"><code>' + esc(m.revision) + '<br>' + esc(m.weightSHA256) + '</code></td></tr>';
+}).join('');
+$('workload-table').innerHTML = D.implementation.workloads.map(function (w) {
+ return '<tr><td><code>' + esc(w.name) + '</code></td>' + num(w.wordCount) + num(w.preparedTokens) + num(w.queries) + '</tr>';
+}).join('');
+$('paired-table').innerHTML = C.map(function (r) {
+ return '<tr><td>' + r.whitespace_word_count + '</td>' + num(fmt(r.mlx_gpu_f32_median_ms)) + num(fmt(r.mlx_gpu_f32_p95_ms)) + num(fmt(r.rust_cpu_default_median_ms)) + num(fmt(r.rust_cpu_default_p95_ms)) + num(fmt(r.rust_cpu_best_median_ms)) + num(fmt(r.rust_cpu_best_p95_ms)) + num(ratio.format(r.rust_default_cpu_to_mlx_gpu_latency_ratio) + '×') + '</tr>';
+}).join('');
+function drawComparison() {
+ const best = $('cpu-mode').value === 'best', stat = $('latency-stat').value;
+ const cpuKey = 'rust_cpu_' + (best ? 'best' : 'default') + '_' + stat + '_ms';
+ const gpuKey = 'mlx_gpu_f32_' + stat + '_ms';
+ const max = Math.ceil(Math.max.apply(null, C.map(function (r) { return Math.max(r[cpuKey], r[gpuKey]); })) / 100) * 100;
+ $('comparison-bars').innerHTML = C.map(function (r) {
+  const cpu = r[cpuKey], gpu = r[gpuKey];
+  return '<article class="chart-row"><header><strong>' + r.whitespace_word_count + ' words</strong><small>CPU / GPU = ' + ratio.format(cpu / gpu) + '×</small></header><div class="bar-row"><span class="bar-label">CPU / F32</span><div class="bar-track"><div class="bar cpu" style="width:' + (cpu / max * 100) + '%"></div></div><span class="bar-value">' + fmt(cpu) + ' ms</span></div><div class="bar-row"><span class="bar-label">GPU / F32</span><div class="bar-track"><div class="bar" style="width:' + (gpu / max * 100) + '%"></div></div><span class="bar-value">' + fmt(gpu) + ' ms</span></div></article>';
+ }).join('');
+ $('comparison-scale').innerHTML = [0,1,2,3,4].map(function (i) { return '<span>' + Math.round(max * i / 4) + (i === 4 ? ' ms' : '') + '</span>'; }).join('');
+ const ratios = C.map(function (r) { return r[cpuKey] / r[gpuKey]; });
+ $('comparison-summary').textContent = stat + '; Rayon ' + (best ? '4' : '8') + '; CPU/GPU latency ratio range: ' + ratio.format(Math.min.apply(null, ratios)) + '–' + ratio.format(Math.max.apply(null, ratios)) + '×.';
+ $('comparison-bars').setAttribute('aria-label', 'Latency ' + stat + ': ' + C.map(function (r) { return r.whitespace_word_count + ' words, CPU ' + fmt(r[cpuKey]) + ' ms, GPU ' + fmt(r[gpuKey]) + ' ms'; }).join('; '));
+}
+$('cpu-mode').addEventListener('change', drawComparison);
+$('latency-stat').addEventListener('change', drawComparison);
+drawComparison();
+const names = {accurate_f32_auto:'F32 · cache auto',accurate_f32_no_cache:'F32 · cache 0 / clear',accurate_f32_20mib:'F32 · cache 20 MiB',fast_fp16_auto:'F16 · cache auto',low_memory_fp16_20mib:'F16 · 20 MiB / clear'};
+const configurations = D.profiles.configurations.filter(function (c) { return c.results && c.results.length; });
+const requests = D.profiles.requests;
+$('profile-request').innerHTML = requests.map(function (r, i) { return '<option value="' + i + '">' + r.whitespace_word_count + ' words</option>'; }).join('');
+function drawProfiles() {
+ const req = requests[Number($('profile-request').value)];
+ const data = configurations.map(function (c) { return {c:c,r:c.results.find(function (r) { return r.request === req.name; })}; }).filter(function (x) { return x.r; });
+ const max = Math.max.apply(null, data.map(function (x) { return x.r.warm_median_ms; })) * 1.05;
+ $('profile-bars').innerHTML = data.map(function (x) { return '<div class="profile-row"><span>' + esc(names[x.c.name]) + '</span><div class="bar-track"><div class="bar' + (x.c.approximate ? ' cpu' : '') + '" style="width:' + (x.r.warm_median_ms / max * 100) + '%"></div></div><span class="bar-value">' + fmt(x.r.warm_median_ms) + ' ms</span></div>'; }).join('');
+ $('profile-bars').setAttribute('aria-label', req.whitespace_word_count + ' words: ' + data.map(function (x) { return names[x.c.name] + ', ' + fmt(x.r.warm_median_ms) + ' ms'; }).join('; '));
+}
+$('profile-request').addEventListener('change', drawProfiles);
+drawProfiles();
+$('profile-table').innerHTML = configurations.map(function (c) {
+ return '<tr><td>' + (c.approximate ? 'F16' : 'F32') + '</td><td>' + esc(String(c.cache_mib)) + (c.cache_mib === 'auto' ? '' : ' MiB') + ' / ' + (c.clear_cache ? 'yes' : 'no') + '</td>' + requests.map(function (req) { const r = c.results.find(function (x) { return x.request === req.name; }); return num(fmt(r.warm_median_ms) + ' / ' + fmt(r.warm_p95_ms)); }).join('') + '</tr>';
+}).join('');
+$('print-report').addEventListener('click', function () { window.print(); });
+$('data-details').addEventListener('toggle', function () { if (this.open && !$('data-view').dataset.loaded) { $('data-view').textContent = JSON.stringify(D, null, 2); $('data-view').dataset.loaded = 'true'; } });
+window.__GLINER_REPORT_READY__ = true;
+})();
+</script>
+</body>
+</html>
