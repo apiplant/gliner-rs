@@ -57,7 +57,7 @@ private struct OrderedParser {
     }
 }
 public struct InferenceRequest {
-    public let text: String, schema: Schema, options: ExtractOptions, wordSplitter: WordSplitter, isLong: Bool
+    public let text: String, schema: Schema, options: ExtractOptions, wordSplitter: WordSplitter
     public init(json: Data) throws {
         var parser = try OrderedParser(json); try self.init(node: parser.value())
     }
@@ -67,10 +67,9 @@ public struct InferenceRequest {
         return try cases.map { try InferenceRequest(node: $0) }
     }
     private init(node: OrderedJSON) throws {
-        guard node.object != nil else { throw GLiNERError.invalidInput("Inference case must be an object") }
-        isLong = node["long"]?.bool ?? false
-        if isLong { text = (0..<40).map { "In report \($0), analyst Jane Smith of Goldman Sachs said Tesla shipped the Model Y from Berlin while Elon Musk visited Austin." }.joined(separator: " ") }
-        else { guard let value = node["text"]?.string else { throw GLiNERError.invalidInput("Case requires a string text") }; text = value }
+        guard node.object != nil else { throw GLiNERError.invalidInput("Inference request must be an object") }
+        guard let value = node["text"]?.string else { throw GLiNERError.invalidInput("Request requires a string text") }
+        text = value
         wordSplitter = (node["char_split"]?.bool ?? false) ? .char : .whitespace
         let threshold = Float(node["threshold"]?.number ?? 0.5)
         options = ExtractOptions(threshold: threshold, includeSpans: node["include_spans"]?.bool ?? true, includeConfidence: node["include_confidence"]?.bool ?? true)

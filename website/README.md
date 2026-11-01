@@ -36,11 +36,9 @@ injects it as `__VERSION__`. There is no copy in the site to keep in sync.
 (`Prose.tsx` — headings, paragraphs, code blocks, flag tables). There is no MDX pipeline:
 each page is hand-written TSX kept in sync with `../README.md` by hand.
 
-`/docs/apple` covers the Swift/MLX Metal backend. Vite also serves and emits the
-committed `../reports/gliner-apple-report.html` at `/reports/gliner-apple-report.html`.
-Regenerate that standalone report with `python3 scripts/build_apple_report.py` from
-the repository root after editing its template or recorded data; website builds
-consume the committed HTML and do not require Python or an Apple toolchain.
+`/docs/apple` covers the Swift/MLX and Rust/Candle Metal backends. The standalone
+report is the static file `public/reports/gliner-apple-report.html`, served at
+`/reports/gliner-apple-report.html` by the normal Vite public-assets pipeline.
 
 ## Deploying
 

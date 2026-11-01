@@ -38,9 +38,8 @@ impl Default for RustLoadOptions {
     }
 }
 
-/// Build a checkpoint variable source. Also used by the encoder-trace exporter
-/// so its loading policy matches the full model's policy.
-pub fn checkpoint_var_builder(
+/// Build a checkpoint variable source using the requested loading policy.
+pub(crate) fn checkpoint_var_builder(
     path: impl AsRef<Path>,
     dtype: DType,
     device: &Device,

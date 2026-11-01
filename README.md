@@ -1,13 +1,5 @@
 # gliner-rs
 
-For **iOS and macOS on Apple Silicon**, the existing Rust model can use
-[Candle Metal](docs/CANDLE_METAL.md). Enable the `metal` Cargo feature and select
-`--metal`; CPU remains the default. A Swift/MLX alternative is in [`swift/`](swift/README.md).
-It uses MLX with Metal acceleration, includes a demo app in [`ios/`](ios/), and supports
-configurable precision and memory profiles. See the [Apple validation report](docs/APPLE_VALIDATION.md)
-for checkpoint coverage, parity checks, and measured Mac performance.
-See the [Apple backend technical report](reports/gliner-apple-report.html) for the standalone English report and embedded measurements. The optimized Candle F32 path streams weights and fuses the relative-attention score epilogue; its dense attention remains O(T²). On the tested short requests, original-to-optimized Candle median latency decreased 18–31% on Mac and 13–31% on iPhone; MLX remained 7–18% and 18–23% lower, respectively. See the report for the method and separate physical-footprint and RSS measurements.
-
 Rust inference for GLiNER2 **boundary-architecture** checkpoints, built on
 [candle](https://github.com/huggingface/candle). It is a port of the inference path of
 [fastino-ai/GLiNER2](https://github.com/fastino-ai/GLiNER2), and works with any checkpoint
@@ -53,7 +45,7 @@ Supported:
   several texts against the *same* schema in one padded encoder pass instead of one call per
   text; each text's result is identical to what the single-text method would give it alone.
   `gliner-classify` uses this for `-f`/multi-text input.
-- CPU, or CUDA with `--features cuda`. The encoder can run in F32 or F16; the heads always
+- CPU, CUDA with `--features cuda`, or Apple Metal with `--features metal`. The encoder can run in F32 or F16; the heads always
   run in F32.
 - CPU matmul threading is capped (default: `min(8, available parallelism)`) instead of
   using every logical core, since this model's many small sequential matmuls oversubscribe
@@ -125,6 +117,7 @@ built and published.
 ```sh
 cargo build --release                  # CPU
 cargo build --release --features cuda  # CUDA
+cargo build --release --features metal # Apple Metal
 
 gliner \
   --text "Alice works for Acme in Paris." \
@@ -133,6 +126,18 @@ gliner \
   --classify "sentiment=positive,negative,neutral" \
   --spans --confidence
 ```
+
+On Apple Silicon, build with `--features metal` and pass `--metal` to `gliner` to select the
+GPU; CPU remains the default. See [Candle Metal](docs/CANDLE_METAL.md) for
+library and app integration, [Swift/MLX](swift/README.md) for the separate Swift
+implementation, and the [Apple technical report](website/public/reports/gliner-apple-report.html)
+for measured results and limitations.
+
+| `gliner` Metal flag | Meaning |
+| --- | --- |
+| `--metal` | Use the Metal device (requires the `metal` feature). |
+| `--metal-mmap` | Use the original mmap weight loader. |
+| `--metal-original-attention` | Use the original attention path. |
 
 If needed it downloads `fastino/gliner2.5-multi-v1` into the cache directory on
 first run (see [CLI checkpoint resolution](#cli-checkpoint-resolution)).

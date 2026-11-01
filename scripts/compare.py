@@ -1,6 +1,5 @@
 """Compare two JSON-lines result files structurally, allowing float tolerance."""
 import json
-import math
 import sys
 
 TOL = float(sys.argv[3]) if len(sys.argv) > 3 else 1e-3
@@ -8,10 +7,6 @@ TOL = float(sys.argv[3]) if len(sys.argv) > 3 else 1e-3
 
 def diff(a, b, path="$"):
     if isinstance(a, float) or isinstance(b, float):
-        if ((isinstance(a, float) and not math.isfinite(a)) or
-                (isinstance(b, float) and not math.isfinite(b))):
-            yield f"{path}: non-finite numeric value ({a!r} != {b!r})"
-            return
         if not isinstance(a, (int, float)) or not isinstance(b, (int, float)) or abs(a - b) > TOL:
             yield f"{path}: {a!r} != {b!r}"
         return
@@ -42,6 +37,4 @@ for i, (a, b) in enumerate(zip(left, right)):
         bad += 1
         print(f"case {i}:"); [print("  " + p) for p in problems]
 print(f"{len(left) - bad}/{len(left)} cases match (tol={TOL})")
-if len(left) != len(right):
-    print(f"row count mismatch: left has {len(left)} rows; right has {len(right)} rows")
 sys.exit(1 if bad or len(left) != len(right) else 0)

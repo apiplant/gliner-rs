@@ -15,23 +15,7 @@ function crateVersion(): string {
 }
 
 export default defineConfig({
-  plugins: [solid(), tailwindcss(), {
-    name: "apple-technical-report",
-    configureServer(server) {
-      server.middlewares.use((request, response, next) => {
-        if (request.url?.split("?")[0] !== "/reports/gliner-apple-report.html") return next();
-        response.setHeader("Content-Type", "text/html; charset=utf-8");
-        response.end(readFileSync(new URL("../reports/gliner-apple-report.html", import.meta.url)));
-      });
-    },
-    generateBundle() {
-      this.emitFile({
-        type: "asset",
-        fileName: "reports/gliner-apple-report.html",
-        source: readFileSync(new URL("../reports/gliner-apple-report.html", import.meta.url), "utf8"),
-      });
-    },
-  }],
+  plugins: [solid(), tailwindcss()],
   define: { __VERSION__: JSON.stringify(crateVersion()) },
   server: {
     port: 5275,

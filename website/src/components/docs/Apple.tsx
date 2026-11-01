@@ -50,7 +50,7 @@ export function DocsApple() {
         <P>
           Existing Rust CPU and CUDA behavior is unchanged unless you opt in. The demo’s optional
           static-library/C bridge integration and its platform requirements are described in{" "}
-          <a class="text-accent underline" href="https://github.com/apiplant/gliner-rs/blob/299797591d88245846a610bfc901c7267e0a3de3/docs/CANDLE_METAL.md" target="_blank" rel="noreferrer noopener">the Candle Metal build notes</a>.
+          <a class="text-accent underline" href="https://github.com/apiplant/gliner-rs/blob/codex/apple-mlx-port/docs/CANDLE_METAL.md" target="_blank" rel="noreferrer noopener">the Candle Metal build notes</a>.
         </P>
       </Section>
 
@@ -59,30 +59,28 @@ export function DocsApple() {
         <P>From a source checkout on an Apple Silicon Mac:</P>
         <CopyBlock command={`git clone https://github.com/apiplant/gliner-rs.git
 cd gliner-rs
-python3 scripts/download_apple_model.py --variant multi
-bash scripts/build_apple.sh macos
-bash scripts/run_apple.sh --model .models/gliner2.5-multi-v1 --text 'Michele vive a Milano e lavora per Acme.' --entities person,company,location`} />
+hf download fastino/gliner2.5-multi-v1 config.json encoder_config/config.json tokenizer.json model.safetensors --revision cf5593a5d45e3bbf204b9df621b13b1c0cf25ee3 --local-dir .models/gliner2.5-multi-v1
+cd swift
+xcodebuild -scheme gliner-mlx -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath ../.derivedData build
+cd ..
+.derivedData/Build/Products/Release/gliner-mlx --model .models/gliner2.5-multi-v1 --text 'Michele vive a Milano.' --entities person,location`} />
         <P>
-          The download script also accepts <IC>small</IC> and <IC>base</IC>. Models are stored
-          under <IC>.models/</IC>; after the files are downloaded, inference does not require a
-          network connection. Use <IC>--chunked</IC> for long text or <IC>--cases</IC> for a
-          JSON case collection.
+          Install the Hugging Face CLI for <IC>hf download</IC>. Small and base checkpoints are
+          also supported. The downloaded files can be used offline. Use <IC>--chunked</IC> for
+          long text or <IC>--cases</IC> for a JSON case collection.
         </P>
       </Section>
 
       <Section>
         <H2 id="apps">macOS and iOS demo</H2>
-        <P>Build and open the macOS demo, or build the iOS and simulator targets:</P>
-        <CopyBlock command={`bash scripts/build_apple.sh app-macos
-open .derivedData/Build/Products/Release/GLiNERDemo.app
-bash scripts/build_apple.sh ios
-bash scripts/build_apple.sh simulator`} />
+        <P>Build the Swift/MLX macOS demo from the repository root:</P>
+        <CopyBlock command={`xcodebuild -project ios/GLiNERDemo.xcodeproj -scheme GLiNERDemo -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath .derivedData CODE_SIGNING_ALLOWED=NO build
+open .derivedData/Build/Products/Release/GLiNERDemo.app`} />
         <P>
-          These scripted app builds disable code signing. To install on a physical iPhone, open
-          <IC>ios/GLiNERDemo.xcodeproj</IC>, select a connected device and configure your own
-          account and team in Xcode’s Signing &amp; Capabilities, then run the app. In the demo,
-          select Small or Multi and press “Scarica modello” (Download model). The downloaded
-          files remain available offline.
+          To install on an iPhone, open <IC>ios/GLiNERDemo.xcodeproj</IC>, select a connected
+          device and configure your own account and team in Xcode’s Signing &amp; Capabilities.
+          The demo downloads Small or Multi and retains the files for offline use. See the Candle
+          build notes above to include the Rust backend in the demo.
         </P>
       </Section>
 
@@ -149,7 +147,6 @@ print(try await extractor.extract("Michele vive a Milano e lavora per Acme."))`}
           TF32 is process-global and MLX caches the setting at its first relevant computation;
           restart the process to change it. Cache settings can be updated between requests with
           <IC>model.updateRuntimeConfiguration(...)</IC>; serialize those updates with model use.
-          The CLI prints effective settings to stderr, and <IC>--repeat N</IC> reports timings.
         </P>
       </Section>
 
@@ -202,13 +199,10 @@ print(try await extractor.extract("Michele vive a Milano e lavora per Acme."))`}
           the full measurements and validation evidence.
         </P>
         <P>
-          The model-dependent Swift tests skip without a local checkpoint. Download small to
-          reproduce all 32 Swift tests; the verifier also builds the Rust reference using the
-          installed Rust 1.99.1 toolchain:
+          Model-dependent Swift tests require a local small checkpoint. From <IC>swift/</IC>, run{" "}
+          <IC>xcodebuild -scheme GLiNERMLX-Package -destination 'platform=macOS,arch=arm64' test</IC>;
+          set <IC>GLINER_MODEL_DIR</IC> if the checkpoint is stored elsewhere.
         </P>
-        <CopyBlock command={`python3 scripts/download_apple_model.py --variant small
-bash scripts/verify_apple.sh multi
-python3 -m unittest discover -s tests -p 'test_*.py'`} />
       </Section>
     </DocsLayout>
   );

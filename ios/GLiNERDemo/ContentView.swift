@@ -1,6 +1,5 @@
 import SwiftUI
 import Foundation
-import Darwin
 import GLiNERMLX
 
 enum DemoVariant: String, CaseIterable, Identifiable {
@@ -27,7 +26,6 @@ enum DemoBackend: String, CaseIterable {
     var title: String { self == .mlx ? "Swift · MLX Metal" : "Rust · Candle Metal (F32)" }
 }
 #if CANDLE_ENABLED
-@_silgen_name("gliner_candle_open") private func candleOpen(_ path: UnsafePointer<CChar>, _ error: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> OpaquePointer?
 @_silgen_name("gliner_candle_open_with_options") private func candleOpenWithOptions(_ path: UnsafePointer<CChar>, _ loader: Int32, _ error: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> OpaquePointer?
 @_silgen_name("gliner_candle_extract") private func candleExtract(_ handle: OpaquePointer, _ request: UnsafePointer<CChar>, _ error: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("gliner_candle_close") private func candleClose(_ handle: OpaquePointer)
@@ -108,213 +106,12 @@ actor ModelWorker {
                 loaded = key
             }
         }
-        let extractionStart = Date()
-        var extractionSeconds = 0.0, formattingSeconds = 0.0
         let json: String = try autoreleasepool {
             let value = try model!.extract(text, schema: Schema(entities: labels), options: .init(includeSpans: true, includeConfidence: true))
-            extractionSeconds = Date().timeIntervalSince(extractionStart)
-            let formattingStart = Date()
-            let json = try value.prettyPrinted()
-            formattingSeconds = Date().timeIntervalSince(formattingStart)
-            return json
+            return try value.prettyPrinted()
         }
         let total = Date().timeIntervalSince(start)
-        if ProcessInfo.processInfo.environment["GLINER_DEMO_PROFILE"] == "1" {
-            let line = String(format: "GLINER_DEMO_PROFILE total=%.6f extract=%.6f json=%.6f cache=%@ clear=%@ qos=%ld\n",
-                              total, extractionSeconds, formattingSeconds, cache, clear ? "true" : "false", Thread.current.qualityOfService.rawValue)
-            FileHandle.standardError.write(Data(line.utf8))
-        }
         return (json, total)
-    }
-}
-
-private struct DeviceMemoryPoint: Encodable {
-    let phase: String
-    let caseIndex: Int?
-    let iteration: Int?
-    let residentBytes: UInt64
-    let physicalFootprintBytes: UInt64
-    let peakPhysicalFootprintBytes: Int64?
-}
-private func deviceMemoryPoint(_ phase: String, caseIndex: Int? = nil, iteration: Int? = nil) throws -> DeviceMemoryPoint {
-    var info = task_vm_info_data_t()
-    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-    let status = withUnsafeMutablePointer(to: &info) { pointer in
-        pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
-        }
-    }
-    guard status == KERN_SUCCESS else { throw GLiNERError.invalidInput("task_info failed: \(status)") }
-    // This ledger field was added in TASK_VM_INFO revision 3. Older kernels may return fewer words.
-    let peakEnd = (MemoryLayout<task_vm_info_data_t>.offset(of: \.ledger_phys_footprint_peak) ?? Int.max - MemoryLayout<Int64>.size) + MemoryLayout<Int64>.size
-    let peak = Int(count) * MemoryLayout<natural_t>.size >= peakEnd && info.ledger_phys_footprint_peak > 0 ? info.ledger_phys_footprint_peak : nil
-    return DeviceMemoryPoint(phase: phase, caseIndex: caseIndex, iteration: iteration,
-                             residentBytes: info.resident_size, physicalFootprintBytes: info.phys_footprint,
-                             peakPhysicalFootprintBytes: peak)
-}
-private struct SelfTestSummary: Encodable {
-    var runID: String?
-    var tf32Environment: String?
-    var status: String = "failed"
-    var caseCount: Int = 0
-    var precision: String = "float32"
-    var backend: String = "mlx"
-    var loadSeconds: Double = 0
-    var totalInferenceSeconds: Double = 0
-    var perCaseSeconds: [Double] = []
-    var peakResidentBytes: Int64?
-    var peakPhysicalFootprintBytes: Int64?
-    var mlxMemory: RuntimeMemorySnapshot?
-    var memoryPoints: [DeviceMemoryPoint]?
-    var candleLoadAutoreleasePool: Bool?
-    var candleMetalLoader: String?
-    var candleOriginalAttention: Bool?
-    var error: String?
-}
-private actor SelfTestWorker {
-    func run(arguments: [String]) -> String {
-        let fm = FileManager.default
-        var summary = SelfTestSummary()
-        if let index = arguments.firstIndex(of: "--self-test-id"), index + 1 < arguments.count {
-            summary.runID = arguments[index + 1]
-        }
-        if let setting = getenv("MLX_ENABLE_TF32") { summary.tf32Environment = String(cString: setting) }
-        var temporary: URL?
-        do {
-            let docs = try fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let summaryURL = docs.appendingPathComponent("apple-self-test-summary.json")
-            let resultsURL = docs.appendingPathComponent("apple-self-test-results.jsonl")
-            let partURL = docs.appendingPathComponent("apple-self-test-results.jsonl.part")
-            let traceURL = docs.appendingPathComponent("apple-self-test-encoder.jsonl")
-            let tracePartURL = docs.appendingPathComponent("apple-self-test-encoder.jsonl.part")
-            let wantsTrace = arguments.contains("--self-test-trace")
-            let benchmark = arguments.contains("--benchmark")
-            let memoryTrace = arguments.contains("--memory-trace")
-            if memoryTrace { summary.memoryPoints = [] }
-            // Remove old success markers before any work starts.
-            for url in [summaryURL, resultsURL, partURL, traceURL, tracePartURL] where fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
-            temporary = partURL
-            do {
-                if let index = arguments.firstIndex(of: "--self-test-precision") {
-                    guard index + 1 < arguments.count else { throw SelfTestError.invalidPrecision("missing value") }
-                    summary.precision = arguments[index + 1]
-                }
-                guard let precision = ModelPrecision(rawValue: summary.precision) else { throw SelfTestError.invalidPrecision(summary.precision) }
-                if let index = arguments.firstIndex(of: "--self-test-backend"), index + 1 < arguments.count { summary.backend = arguments[index + 1] }
-                guard ["mlx", "candle"].contains(summary.backend) else { throw GLiNERError.invalidInput("Invalid backend: \(summary.backend)") }
-                if summary.backend == "candle" && (precision != .float32 || wantsTrace) { throw GLiNERError.unsupported("Candle Metal supports F32 and no encoder trace in this app") }
-                let directory = docs.appendingPathComponent("self-test-model", isDirectory: true)
-                for file in ["config.json", "encoder_config/config.json", "tokenizer.json", "model.safetensors"] {
-                    guard fm.fileExists(atPath: directory.appendingPathComponent(file).path) else { throw SelfTestError.missingFile(file) }
-                }
-                let caseFile = benchmark ? "apple-benchmark-cases.json" : "apple_cases.json"
-                let cases = try InferenceRequest.loadCases(url: docs.appendingPathComponent(caseFile))
-                summary.caseCount = cases.count
-                if memoryTrace { summary.memoryPoints?.append(try deviceMemoryPoint("beforeLoad")) }
-                let loadStart = DispatchTime.now().uptimeNanoseconds
-                let model: GLiNERModel?
-                #if CANDLE_ENABLED
-                let candle: CandleModel?
-                if summary.backend == "candle" {
-                    model = nil
-                    let pool = arguments.contains("--candle-load-autoreleasepool")
-                    var loader = "stream"
-                    if let index = arguments.firstIndex(of: "--candle-metal-loader") {
-                        guard index + 1 < arguments.count else { throw GLiNERError.invalidInput("Missing Candle Metal loader") }
-                        loader = arguments[index + 1]
-                    }
-                    let originalAttention = arguments.contains("--metal-original-attention")
-                    summary.candleLoadAutoreleasePool = pool; summary.candleMetalLoader = loader; summary.candleOriginalAttention = originalAttention
-                    candle = try pool ? autoreleasepool { try CandleModel(directory: directory, loader: loader, originalAttention: originalAttention) } : CandleModel(directory: directory, loader: loader, originalAttention: originalAttention)
-                } else { candle = nil; model = try GLiNERModel(modelDirectory: directory, precision: precision, runtimeConfiguration: DemoRuntimeSettings.startupConfiguration()) }
-                #else
-                guard summary.backend == "mlx" else { throw GLiNERError.unsupported("Candle Metal is not linked in this build") }
-                model = try GLiNERModel(modelDirectory: directory, precision: precision, runtimeConfiguration: DemoRuntimeSettings.startupConfiguration())
-                #endif
-                if let setting = getenv("MLX_ENABLE_TF32") { summary.tf32Environment = String(cString: setting) }
-                summary.loadSeconds = Double(DispatchTime.now().uptimeNanoseconds - loadStart) / 1_000_000_000
-                if memoryTrace { summary.memoryPoints?.append(try deviceMemoryPoint("afterLoad")) }
-                guard fm.createFile(atPath: partURL.path, contents: nil) else { throw SelfTestError.cannotCreateResults }
-                let stream = try FileHandle(forWritingTo: partURL)
-                var traceStream: FileHandle?
-                do {
-                    if wantsTrace {
-                        guard fm.createFile(atPath: tracePartURL.path, contents: nil) else { throw SelfTestError.cannotCreateResults }
-                        traceStream = try FileHandle(forWritingTo: tracePartURL)
-                    }
-                    let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-                    for (caseIndex, request) in cases.enumerated() {
-                        let iterations = benchmark ? 35 : 1
-                        for iteration in 0..<iterations {
-                            let elapsed: Double = try autoreleasepool {
-                                let start = DispatchTime.now().uptimeNanoseconds
-                                let result: JSONValue
-                                #if CANDLE_ENABLED
-                                if let candle { result = try candle.extract(text: request.text, schema: request.schema, options: request.options, splitter: request.wordSplitter) }
-                                else {
-                                    model!.wordSplitter = request.wordSplitter
-                                    result = try model!.extract(request.text, schema: request.schema, options: request.options)
-                                }
-                                #else
-                                model!.wordSplitter = request.wordSplitter
-                                result = try model!.extract(request.text, schema: request.schema, options: request.options)
-                                #endif
-                                let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
-                                if benchmark {
-                                    let entry: JSONValue = .object(["runID": .string(summary.runID ?? ""), "backend": .string(summary.backend), "precision": .string(summary.precision), "caseIndex": .number(Double(caseIndex)), "iteration": .number(Double(iteration)), "warmup": .bool(iteration < 5), "seconds": .number(elapsed), "result": result])
-                                    try stream.write(contentsOf: encoder.encode(entry))
-                                } else { try stream.write(contentsOf: encoder.encode(result)) }
-                                try stream.write(contentsOf: Data([10]))
-                                if let traceStream, let model {
-                                    let input = try model.prepare(request.text, schema: request.schema, maxWords: request.options.maxWords)
-                                    let states = try model.encode(input)
-                                    let trace: [String: Any] = ["input_ids": input.inputIds, "word_positions": input.wordPositions,
-                                        "marker_positions": input.groups.flatMap(\.markerPositions), "encoder_shape": [1] + states.shape,
-                                        "encoder_values": states.asArray(Float.self)]
-                                    try traceStream.write(contentsOf: JSONSerialization.data(withJSONObject: trace, options: [.sortedKeys]))
-                                    try traceStream.write(contentsOf: Data([10]))
-                                }
-                                return elapsed
-                            }
-                            summary.perCaseSeconds.append(elapsed); summary.totalInferenceSeconds += elapsed
-                            if summary.backend == "mlx" {
-                                if !benchmark { GLiNERRuntime.releaseUnusedMemory() }
-                                summary.mlxMemory = GLiNERRuntime.memorySnapshot()
-                            }
-                            if memoryTrace && (!benchmark || iteration == 4 || iteration == 34) {
-                                summary.memoryPoints?.append(try deviceMemoryPoint(benchmark ? (iteration == 4 ? "afterWarmup" : "afterMeasured") : "afterCase", caseIndex: caseIndex, iteration: iteration))
-                            }
-                        }
-                    }
-                    try stream.synchronize(); try stream.close()
-                    try traceStream?.synchronize(); try traceStream?.close()
-                } catch { try? stream.close(); try? traceStream?.close(); throw error }
-                if wantsTrace { try fm.moveItem(at: tracePartURL, to: traceURL) }
-                try fm.moveItem(at: partURL, to: resultsURL)
-                temporary = nil
-                summary.status = "passed"
-            } catch { summary.error = error.localizedDescription; try? fm.removeItem(at: tracePartURL) }
-            var usage = rusage()
-            if getrusage(RUSAGE_SELF, &usage) == 0 { summary.peakResidentBytes = Int64(usage.ru_maxrss) }
-            summary.peakPhysicalFootprintBytes = (try? deviceMemoryPoint("final"))?.peakPhysicalFootprintBytes
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(summary).write(to: summaryURL, options: .atomic)
-            if let temporary { try? fm.removeItem(at: temporary) }
-            return summary.status == "passed" ? "Verifica automatica completata." : "Verifica automatica non riuscita: \(summary.error ?? "errore sconosciuto")"
-        } catch {
-            if let temporary { try? fm.removeItem(at: temporary) }
-            return "Verifica automatica non riuscita: \(error.localizedDescription)"
-        }
-    }
-}
-private enum SelfTestError: LocalizedError {
-    case invalidPrecision(String), missingFile(String), cannotCreateResults
-    var errorDescription: String? {
-        switch self {
-        case .invalidPrecision(let value): return "Precisione non valida: \(value)"
-        case .missingFile(let file): return "File del modello mancante: \(file)"
-        case .cannotCreateResults: return "Impossibile creare il file dei risultati"
-        }
     }
 }
 
@@ -329,15 +126,6 @@ final class DemoState: ObservableObject {
     @Published var downloading = false
     @Published var completedFiles = 0
     private let worker = ModelWorker()
-    private let selfTestWorker = SelfTestWorker()
-    private var selfTestStarted = false
-    func runSelfTestIfRequested() async {
-        let arguments = ProcessInfo.processInfo.arguments
-        guard arguments.contains("--self-test"), !selfTestStarted else { return }
-        selfTestStarted = true; busy = true; status = "Verifica automatica in corso…"
-        status = await selfTestWorker.run(arguments: arguments)
-        busy = false
-    }
     private let fm = FileManager.default
     func directory(_ variant: DemoVariant) throws -> URL {
         try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -356,10 +144,6 @@ final class DemoState: ObservableObject {
     }
     func readyDirectory(_ variant: DemoVariant) -> URL? {
         if let dir = try? directory(variant), verifiedDirectory(dir, variant: variant) { return dir }
-        if let docs = try? fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {
-            let dir = docs.appendingPathComponent("self-test-model", isDirectory: true)
-            if verifiedDirectory(dir, variant: variant) { return dir }
-        }
         return nil
     }
     func isReady(_ variant: DemoVariant) -> Bool { readyDirectory(variant) != nil }
@@ -521,6 +305,6 @@ struct ContentView: View {
                     }
                 }
             }.padding().frame(maxWidth: 800, alignment: .leading)
-        }.onAppear { state.refresh() }.task { await state.runSelfTestIfRequested() }
+        }.onAppear { state.refresh() }
     }
 }

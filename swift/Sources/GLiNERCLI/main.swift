@@ -1,5 +1,4 @@
 import Foundation
-import Dispatch
 import GLiNERMLX
 import MLX
 
@@ -11,9 +10,9 @@ func values(_ flag: String) -> [String] {
     arguments.indices.compactMap { i in arguments[i] == flag && i + 1 < arguments.count ? arguments[i + 1] : nil }
 }
 let valueFlags: Set<String> = ["--model", "--cases", "--request", "--text", "--entities", "--relations", "--classify", "--structure",
-                               "--threshold", "--max-tokens", "--chunk-size", "--chunk-overlap", "--repeat", "--profile", "--cache-mb"]
+                               "--threshold", "--max-tokens", "--chunk-size", "--chunk-overlap", "--profile", "--cache-mb"]
 let booleanFlags: Set<String> = ["--fp16", "--fp32", "--tf32", "--no-tf32", "--clear-cache", "--retain-cache", "--cpu",
-                                  "--no-spans", "--no-confidence", "--chunked", "--char-split", "--trace", "--tokenize", "--inputs-only"]
+                                  "--no-spans", "--no-confidence", "--chunked", "--char-split"]
 func validateArguments() throws {
     var i = 0, seen: [String: Int] = [:]
     let repeatable: Set<String> = ["--classify", "--structure"]
@@ -40,19 +39,11 @@ func validateArguments() throws {
     if has("--tf32") && has("--no-tf32") { throw GLiNERError.invalidInput("Choose either --tf32 or --no-tf32") }
     if has("--clear-cache") && has("--retain-cache") { throw GLiNERError.invalidInput("Choose either --clear-cache or --retain-cache") }
     if has("--fp16") && has("--fp32") { throw GLiNERError.invalidInput("Choose either --fp16 or --fp32") }
-    if has("--trace") && (has("--chunked") || has("--tokenize") || has("--inputs-only")) {
-        throw GLiNERError.invalidInput("--trace cannot be combined with --chunked or input-only mode")
-    }
     let sources = ["--cases", "--request", "--text"].filter(has)
     if sources.count > 1 { throw GLiNERError.invalidInput("Choose one input source: --cases, --request, or --text") }
     if has("--cases") || has("--request") {
         let direct = ["--entities", "--relations", "--classify", "--structure", "--threshold", "--char-split", "--no-spans", "--no-confidence"].filter(has)
         if !direct.isEmpty { throw GLiNERError.invalidInput("These per-text options cannot be combined with --cases/--request: \(direct.joined(separator: ", "))") }
-    }
-    if has("--tokenize") || has("--inputs-only") {
-        let modelOnly = ["--profile", "--fp16", "--fp32", "--tf32", "--no-tf32", "--cache-mb", "--clear-cache", "--retain-cache", "--cpu", "--repeat", "--max-tokens", "--chunked", "--chunk-size", "--chunk-overlap", "--trace"]
-        let ignored = modelOnly.filter(has)
-        if !ignored.isEmpty { throw GLiNERError.invalidInput("These options require model inference and cannot be used in input-only mode: \(ignored.joined(separator: ", "))") }
     }
     if (has("--chunk-size") || has("--chunk-overlap")) && !has("--chunked") {
         throw GLiNERError.invalidInput("--chunk-size and --chunk-overlap require --chunked")
@@ -60,7 +51,7 @@ func validateArguments() throws {
     if let threshold = value("--threshold"), let number = Float(threshold), !number.isFinite {
         throw GLiNERError.invalidInput("--threshold must be finite")
     }
-    for flag in ["--max-tokens", "--chunk-size", "--repeat"] {
+    for flag in ["--max-tokens", "--chunk-size"] {
         if let raw = value(flag) {
             guard let number = Int(raw), number > 0 else { throw GLiNERError.invalidInput("\(flag) must be a positive integer") }
         }
@@ -86,22 +77,9 @@ func positiveInt(_ flag: String, default fallback: Int) throws -> Int {
     return result
 }
 func note(_ text: String) { FileHandle.standardError.write(Data((text + "\n").utf8)) }
-func elapsedSeconds(since start: UInt64) -> Double {
-    Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
-}
-func emit(_ object: Any) throws {
-    let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed])
-    FileHandle.standardOutput.write(data + Data([10]))
-}
 func emit(_ result: JSONValue) throws {
     let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     FileHandle.standardOutput.write(try encoder.encode(result) + Data([10]))
-}
-func inputObject(_ input: PreparedInput) -> [String: Any] {
-    ["text": input.text, "input_ids": input.inputIds, "word_positions": input.wordPositions,
-     "marker_positions": input.groups.flatMap(\.markerPositions), "prefix_tokens": input.prefixTokens,
-     "words": input.words.map { ["text": $0.text, "byte_start": $0.byteStart, "byte_end": $0.byteEnd,
-                                   "char_start": $0.charStart, "char_end": $0.charEnd] }]
 }
 let help = """
 GLiNER on Apple Silicon — local MLX / Metal inference
@@ -127,12 +105,9 @@ Options:
   --chunk-size 384          Words per window
   --chunk-overlap 64        Overlapping words
   --max-tokens 4096         Maximum encoder tokens, schema included; never silently truncated
-  --request REQUEST.json    A single request in the same format as the parity cases
-  --tokenize / --inputs-only  Emit prepared input only; no model weights needed
-  --trace                   Emit full F32 encoder states for numeric verification
-  --repeat N                Repeat each request N times and report timings to stderr
+  --request REQUEST.json    A single JSON extraction request
 
-Download a checkpoint first: python3 scripts/download_apple_model.py --variant multi
+Download a model checkpoint from https://huggingface.co/fastino and pass its directory with --model.
 """
 
 func run(precision: ModelPrecision = .float32, runtimeConfiguration: RuntimeConfiguration = .platformDefault) throws {
@@ -170,45 +145,23 @@ func run(precision: ModelPrecision = .float32, runtimeConfiguration: RuntimeConf
         object["char_split"] = arguments.contains("--char-split")
         requests = [try InferenceRequest(json: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))]
     }
-    if arguments.contains("--tokenize") || arguments.contains("--inputs-only") {
-        var processor = Processor(tokenizer: try UnigramTokenizer(url: directory.appendingPathComponent("tokenizer.json")))
-        for request in requests {
-            processor.wordSplitter = request.wordSplitter
-            try emit(inputObject(try processor.prepare(text: request.text, schema: request.schema, maxWords: request.options.maxWords)))
-        }
-        return
-    }
-    let start = DispatchTime.now().uptimeNanoseconds, limit = try positiveInt("--max-tokens", default: 4096)
+    let limit = try positiveInt("--max-tokens", default: 4096)
     note("Loading \(directory.lastPathComponent) (\(precision.rawValue), \(arguments.contains("--cpu") ? "CPU" : "Metal GPU"))…")
     let model = try GLiNERModel(modelDirectory: directory, precision: precision, maxInputTokens: limit,
                                 runtimeConfiguration: runtimeConfiguration)
-    note(String(format: "Loaded in %.6f s", elapsedSeconds(since: start)))
-    let repetitions = try positiveInt("--repeat", default: 1)
-    for (index, request) in requests.enumerated() {
+    for request in requests {
         model.wordSplitter = request.wordSplitter
-        for repetition in 0..<repetitions {
-            let started = DispatchTime.now().uptimeNanoseconds
-            if arguments.contains("--trace") {
-                try autoreleasepool {
-                let input = try model.prepare(request.text, schema: request.schema, maxWords: request.options.maxWords)
-                let states = try model.encode(input)
-                let trace: [String: Any] = ["input_ids": input.inputIds, "word_positions": input.wordPositions,
-                                            "marker_positions": input.groups.flatMap(\.markerPositions),
-                                            "encoder_shape": [1] + states.shape, "encoder_values": states.asArray(Float.self)]
-                try emit(trace)
-                }
-            } else if arguments.contains("--chunked") {
-                let chunks = ChunkOptions(chunkSize: try positiveInt("--chunk-size", default: 384),
-                                          chunkOverlap: Int(value("--chunk-overlap") ?? "64") ?? 64)
-                try emit(model.extractLong(request.text, schema: request.schema, options: request.options, chunks: chunks))
-            } else { try emit(model.extract(request.text, schema: request.schema, options: request.options)) }
-            if arguments.contains("--trace") && runtimeConfiguration.clearCacheAfterRequest { GLiNERRuntime.releaseUnusedMemory() }
-            note(String(format: "Case %d/%d, run %d: %.6f s", index + 1, requests.count, repetition + 1, elapsedSeconds(since: started)))
+        if arguments.contains("--chunked") {
+            let chunks = ChunkOptions(chunkSize: try positiveInt("--chunk-size", default: 384),
+                                      chunkOverlap: Int(value("--chunk-overlap") ?? "64") ?? 64)
+            try emit(model.extractLong(request.text, schema: request.schema, options: request.options, chunks: chunks))
+        } else {
+            try emit(model.extract(request.text, schema: request.schema, options: request.options))
         }
     }
 }
 
-func runtimeSettings() throws -> (name: String, precision: ModelPrecision, configuration: RuntimeConfiguration) {
+func runtimeSettings() throws -> (precision: ModelPrecision, configuration: RuntimeConfiguration) {
     let requested = value("--profile") ?? "accurate"
     let profile: InferenceProfile
     switch requested {
@@ -234,7 +187,7 @@ func runtimeSettings() throws -> (name: String, precision: ModelPrecision, confi
     let clearCache = arguments.contains("--clear-cache") ? true : arguments.contains("--retain-cache") ? false : defaults.clearCacheAfterRequest
     let runtime = RuntimeConfiguration(allowTF32: allowTF32, cacheLimitBytes: cacheLimitBytes,
                                        clearCacheAfterRequest: clearCache)
-    return (requested == "lowMemory" ? "low-memory" : requested, precision, runtime)
+    return (precision, runtime)
 }
 
 do {
@@ -242,21 +195,15 @@ do {
         try run()
     } else {
         try validateArguments()
-        if arguments.contains("--tokenize") || arguments.contains("--inputs-only") {
-            try run()
+        let settings = try runtimeSettings()
+        try GLiNERRuntime.configure(settings.configuration)
+        if settings.precision == .float16 {
+            note("Warning: F16 is experimental and may change extracted spans or confidence scores.")
+        }
+        if arguments.contains("--cpu") {
+            try Device.withDefaultDevice(.cpu) { try run(precision: settings.precision, runtimeConfiguration: settings.configuration) }
         } else {
-            let settings = try runtimeSettings()
-            try GLiNERRuntime.configure(settings.configuration)
-            let cacheText = settings.configuration.cacheLimitBytes.map { "\($0 / 1_048_576) MiB" } ?? "auto"
-            note("Runtime: profile=\(settings.name), precision=\(settings.precision.rawValue), TF32=\(settings.configuration.allowTF32 ? "on" : "off"), cache=\(cacheText), clear-after-request=\(settings.configuration.clearCacheAfterRequest ? "yes" : "no")")
-            if settings.precision == .float16 {
-                note("Warning: F16 is experimental and may change extracted spans or confidence scores.")
-            }
-            if arguments.contains("--cpu") {
-                try Device.withDefaultDevice(.cpu) { try run(precision: settings.precision, runtimeConfiguration: settings.configuration) }
-            } else {
-                try run(precision: settings.precision, runtimeConfiguration: settings.configuration)
-            }
+            try run(precision: settings.precision, runtimeConfiguration: settings.configuration)
         }
     }
 } catch { note("Error: \(error.localizedDescription)"); exit(1) }
