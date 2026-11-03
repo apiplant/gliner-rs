@@ -32,9 +32,13 @@ injects it as `__VERSION__`. There is no copy in the site to keep in sync.
 ## Documentation pages
 
 `src/components/docs/` holds one page per topic (`Overview`, `Library`, `Cli`, `Classify`,
-`Pii`, `Guardrails`), a shared sidebar (`DocsLayout.tsx`), and shared prose primitives
+`Pii`, `Guardrails`, `Apple`), a shared sidebar (`DocsLayout.tsx`), and shared prose primitives
 (`Prose.tsx` — headings, paragraphs, code blocks, flag tables). There is no MDX pipeline:
 each page is hand-written TSX kept in sync with `../README.md` by hand.
+
+`/docs/apple` covers the Swift/MLX and Rust/Candle Metal backends. The standalone
+report is the static file `public/reports/gliner-apple-report.html`, served at
+`/reports/gliner-apple-report.html` by the normal Vite public-assets pipeline.
 
 ## Deploying
 

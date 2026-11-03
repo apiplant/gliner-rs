@@ -10,6 +10,10 @@ export function DocsLibrary() {
         Add gliner-rs as a Rust dependency to run GLiNER2 extraction directly in your process —
         no CLI, no subprocess.
       </Lead>
+      <P>
+        For native iOS or macOS integration using Swift and MLX/Metal, see the{" "}
+        <a href="/docs/apple#swift-api" class="text-accent hover:text-accent-dim">Apple API guide</a>.
+      </P>
 
       <Section>
         <H2>Install</H2>

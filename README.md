@@ -45,7 +45,7 @@ Supported:
   several texts against the *same* schema in one padded encoder pass instead of one call per
   text; each text's result is identical to what the single-text method would give it alone.
   `gliner-classify` uses this for `-f`/multi-text input.
-- CPU, or CUDA with `--features cuda`. The encoder can run in F32 or F16; the heads always
+- CPU, CUDA with `--features cuda`, or Apple Metal with `--features metal`. The encoder can run in F32 or F16; the heads always
   run in F32.
 - CPU matmul threading is capped (default: `min(8, available parallelism)`) instead of
   using every logical core, since this model's many small sequential matmuls oversubscribe
@@ -117,6 +117,7 @@ built and published.
 ```sh
 cargo build --release                  # CPU
 cargo build --release --features cuda  # CUDA
+cargo build --release --features metal # Apple Metal
 
 gliner \
   --text "Alice works for Acme in Paris." \
@@ -125,6 +126,18 @@ gliner \
   --classify "sentiment=positive,negative,neutral" \
   --spans --confidence
 ```
+
+On Apple Silicon, build with `--features metal` and pass `--metal` to `gliner` to select the
+GPU; CPU remains the default. See [Candle Metal](docs/CANDLE_METAL.md) for
+library and app integration, [Swift/MLX](swift/README.md) for the separate Swift
+implementation, and the [Apple technical report](website/public/reports/gliner-apple-report.html)
+for measured results and limitations.
+
+| `gliner` Metal flag | Meaning |
+| --- | --- |
+| `--metal` | Use the Metal device (requires the `metal` feature). |
+| `--metal-mmap` | Use the original mmap weight loader. |
+| `--metal-original-attention` | Use the original attention path. |
 
 If needed it downloads `fastino/gliner2.5-multi-v1` into the cache directory on
 first run (see [CLI checkpoint resolution](#cli-checkpoint-resolution)).

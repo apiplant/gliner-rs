@@ -5,6 +5,7 @@ import { Footer } from "./components/Footer";
 import { Home } from "./components/Home";
 import { DocsOverview } from "./components/docs/Overview";
 import { DocsLibrary } from "./components/docs/Library";
+import { DocsApple } from "./components/docs/Apple";
 import { DocsCli } from "./components/docs/Cli";
 import { DocsClassify } from "./components/docs/Classify";
 import { DocsPii } from "./components/docs/Pii";
@@ -48,6 +49,7 @@ const Router = createRouter({
     { path: "/", component: Home },
     { path: "/docs", component: DocsOverview },
     { path: "/docs/library", component: DocsLibrary },
+    { path: "/docs/apple", component: DocsApple },
     { path: "/docs/cli", component: DocsCli },
     { path: "/docs/classify", component: DocsClassify },
     { path: "/docs/pii", component: DocsPii },
